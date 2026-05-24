@@ -179,7 +179,7 @@ def evaluate_on_validation(pop: PopulationSimulator, algo, Gamma_val, customers=
         
         # BUG FIX: Only handle the case when action is undecided (404)
         if assigned_action == 404:
-            if algo in ["mst", "policy_tree", "gmm-standard", "gmm-da", "kmeans-standard", "kmeans-da"]:
+            if algo in ["mst", "gmm-standard", "gmm-da", "kmeans-standard", "kmeans-da"]:
                 assigned_action = np.random.randint(0, pop.action_num)
                 cust.est_segment[algo].est_action = assigned_action
             else:
@@ -216,11 +216,11 @@ def pick_M_for_algo(algo, df_results_M):
 
     val_col = f'{algo}_val'
 
-    max_val_algos = ["gmm-da", "kmeans-da", "clr-da", "policy_tree",
+    max_val_algos = ["gmm-da", "kmeans-da", "clr-da",
                      "dast", "dast_old", "mst", "kmeans-standard"]
     min_val_algos = ["gmm-standard", "clr-standard"]
-    meta_learners = ["t_learner", "s_learner", "x_learner", 
-                     "dr_learner", "causal_forest"]
+    meta_learners = ["t_learner", "s_learner", "x_learner",
+                     "dr_learner", "causal_forest", "policy_tree"]
 
     if algo not in max_val_algos and algo not in min_val_algos and algo not in meta_learners:
         raise ValueError(f"Unknown algorithm: {algo}")

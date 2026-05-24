@@ -4,7 +4,6 @@ from gmm import GMM_segment_and_estimate
 from oracle import structure_oracle, policy_oracle, oracle_profit_on_customers
 import pandas as pd
 import numpy as np
-from policy_tree import policy_tree_segment_and_estimate, assign_new_customers_to_pruned_tree
 from dast import DAST_segment_and_estimate
 from dast_old import DAST_segment_and_estimate as DAST_old_segment_and_estimate
 from mst import MST_segment_and_estimate
@@ -25,7 +24,7 @@ import os
 import sys
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_META_LEARNERS    = frozenset(["t_learner", "x_learner", "dr_learner", "s_learner", "causal_forest"])
+_HTE_METHODS    = frozenset(["t_learner", "x_learner", "dr_learner", "s_learner", "causal_forest", "policy_tree"])
 _FULL_SPLIT_ALGOS = frozenset(["clr-standard", "kmeans-standard", "gmm-standard"])
 
 
@@ -142,7 +141,7 @@ def _run_one_sim(packed_args):
 
     try:
         for algo in args.algorithms:
-            is_meta = algo in _META_LEARNERS
+            is_meta = algo in _HTE_METHODS
 
             # Select cached split ──────────────────────────────────────────────
             sp = split10 if algo in _FULL_SPLIT_ALGOS else split07
@@ -158,99 +157,88 @@ def _run_one_sim(packed_args):
             # true_segment_ids for this split's train set — pure numpy, no DataFrame
             true_seg_ids_tr = all_true_seg_ids[sp['train_indices']]
 
-            # ── M sweep ───────────────────────────────────────────────────────
+            # ── M sweep (segmentation methods only) ─────────────────────────────
             results_M = []
 
-            for M in M_range:
-                depth_pt  = 1 if M <= 2 else (2 if M <= 4 else (3 if M <= 8 else 4))
-                depth_mst = 1 if M <= 2 else (2 if M <= 4 else (3 if M <= 8 else 4))
-                dast_val = dast_old_val = mst_val = pt_val = None
-                sil = bic_gmm = bic_clr = da_km = da_gmm = da_clr = None
+            if not is_meta:
+                for M in M_range:
+                    depth_mst = 1 if M <= 2 else (2 if M <= 4 else (3 if M <= 8 else 4))
+                    dast_val = dast_old_val = mst_val = None
+                    sil = bic_gmm = bic_clr = da_km = da_gmm = da_clr = None
 
-                if algo == "gmm-standard":
-                    bic_gmm, _ = GMM_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
-                        include_interactions, random_state=seed,
-                        is_discrete=(outcome_type == 'discrete'))
-                elif algo == "gmm-da":
-                    da_gmm, _  = GMM_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
-                        include_interactions, random_state=seed,
-                        is_discrete=(outcome_type == 'discrete'))
-                elif algo == "kmeans-standard":
-                    sil, _     = KMeans_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
-                        include_interactions, random_state=seed,
-                        is_discrete=(outcome_type == 'discrete'))
-                elif algo == "kmeans-da":
-                    da_km, _   = KMeans_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
-                        include_interactions, random_state=seed,
-                        is_discrete=(outcome_type == 'discrete'))
-                elif algo == "clr-standard":
-                    # num_tries=3 in sweep (vs 8 in final retrain) — 62 % faster
-                    bic_clr, _ = CLR_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr,
-                        kmeans_coef=args.kmeans_coef, num_tries=3,
-                        algo=algo, include_interactions=include_interactions,
-                        random_state=seed)
-                elif algo == "clr-da":
-                    da_clr, _  = CLR_segment_and_estimate(
-                        pop, M, x_mat_tr, D_vec_tr, y_vec_tr,
-                        kmeans_coef=args.kmeans_coef, num_tries=3,
-                        algo=algo, include_interactions=include_interactions,
-                        random_state=seed)
-                elif algo == "dast":
-                    _, dast_val, _ = DAST_segment_and_estimate(
-                        pop, M, min_leaf_size=2, algo=algo,
-                        use_hybrid_method=args.use_hybrid_method)
-                elif algo == "dast_old":
-                    d_old = 1 if M <= 2 else (2 if M <= 4 else (3 if M <= 6 else 4))
-                    _, dast_old_val, _ = DAST_old_segment_and_estimate(
-                        pop, M, max_depth=d_old, min_leaf_size=2, algo=algo,
-                        include_interactions=include_interactions,
-                        use_hybrid_method=args.use_hybrid_method)
-                elif algo == "mst":
-                    _, mst_val, _ = MST_segment_and_estimate(
-                        pop, M, max_depth=depth_mst, min_leaf_size=2,
-                        epsilon=1e-2, algo=algo,
-                        include_interactions=include_interactions)
-                elif algo == "policy_tree":
-                    pt_val, _, _ = policy_tree_segment_and_estimate(
-                        pop, depth_pt, M,
-                        x_mat_tr, D_vec_tr, y_vec_tr,
-                        x_mat_val, D_vec_val, y_vec_val,
-                        include_interactions=include_interactions,
-                        use_hybrid_method=False)
-                elif is_meta:
-                    continue
-                else:
-                    raise ValueError(f"Unknown algorithm: {algo}")
+                    if algo == "gmm-standard":
+                        bic_gmm, _ = GMM_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
+                            include_interactions, random_state=seed,
+                            is_discrete=(outcome_type == 'discrete'))
+                    elif algo == "gmm-da":
+                        da_gmm, _  = GMM_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
+                            include_interactions, random_state=seed,
+                            is_discrete=(outcome_type == 'discrete'))
+                    elif algo == "kmeans-standard":
+                        sil, _     = KMeans_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
+                            include_interactions, random_state=seed,
+                            is_discrete=(outcome_type == 'discrete'))
+                    elif algo == "kmeans-da":
+                        da_km, _   = KMeans_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
+                            include_interactions, random_state=seed,
+                            is_discrete=(outcome_type == 'discrete'))
+                    elif algo == "clr-standard":
+                        # num_tries=3 in sweep (vs 8 in final retrain) — 62 % faster
+                        bic_clr, _ = CLR_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr,
+                            kmeans_coef=args.kmeans_coef, num_tries=3,
+                            algo=algo, include_interactions=include_interactions,
+                            random_state=seed)
+                    elif algo == "clr-da":
+                        da_clr, _  = CLR_segment_and_estimate(
+                            pop, M, x_mat_tr, D_vec_tr, y_vec_tr,
+                            kmeans_coef=args.kmeans_coef, num_tries=3,
+                            algo=algo, include_interactions=include_interactions,
+                            random_state=seed)
+                    elif algo == "dast":
+                        _, dast_val, _ = DAST_segment_and_estimate(
+                            pop, M, min_leaf_size=2, algo=algo,
+                            use_hybrid_method=args.use_hybrid_method)
+                    elif algo == "dast_old":
+                        d_old = 1 if M <= 2 else (2 if M <= 4 else (3 if M <= 6 else 4))
+                        _, dast_old_val, _ = DAST_old_segment_and_estimate(
+                            pop, M, max_depth=d_old, min_leaf_size=2, algo=algo,
+                            include_interactions=include_interactions,
+                            use_hybrid_method=args.use_hybrid_method)
+                    elif algo == "mst":
+                        _, mst_val, _ = MST_segment_and_estimate(
+                            pop, M, max_depth=depth_mst, min_leaf_size=2,
+                            epsilon=1e-2, algo=algo,
+                            include_interactions=include_interactions)
+                    else:
+                        raise ValueError(f"Unknown segmentation algorithm: {algo}")
 
-                # Direct numpy extraction replaces pop.to_dataframe() ──────────
-                est_seg_ids_tr = np.array(
-                    [c.est_segment[algo].segment_id for c in pop.train_customers])
-                S = structure_oracle(true_seg_ids_tr, est_seg_ids_tr)
-                P = policy_oracle(pop.pilot_customers, algo=algo, signal_d=pop.signal_d)
+                    est_seg_ids_tr = np.array(
+                        [c.est_segment[algo].segment_id for c in pop.train_customers])
+                    S = structure_oracle(true_seg_ids_tr, est_seg_ids_tr)
+                    P = policy_oracle(pop.pilot_customers, algo=algo, signal_d=pop.signal_d)
 
-                results_M.append({
-                    "M":                 M,
-                    "dast_val":          dast_val     if algo == "dast"           else None,
-                    "dast_old_val":      dast_old_val if algo == "dast_old"       else None,
-                    "policy_tree_val":   pt_val       if algo == "policy_tree"    else None,
-                    "mst_val":           mst_val      if algo == "mst"            else None,
-                    "kmeans-standard_val": sil        if algo == "kmeans-standard" else None,
-                    "kmeans-da_val":     da_km        if algo == "kmeans-da"      else None,
-                    "gmm-standard_val":  bic_gmm      if algo == "gmm-standard"   else None,
-                    "gmm-da_val":        da_gmm       if algo == "gmm-da"         else None,
-                    "clr-standard_val":  bic_clr      if algo == "clr-standard"   else None,
-                    "clr-da_val":        da_clr       if algo == "clr-da"         else None,
-                    "ARI":               S["ARI"],
-                    "NMI":               S["NMI"],
-                    "regret":            P["regret"],
-                    "mistreatment_rate": P["mistreatment_rate"],
-                    "manager_profit":    P["manager_profit"],
-                })
+                    results_M.append({
+                        "M":                 M,
+                        "dast_val":          dast_val     if algo == "dast"           else None,
+                        "dast_old_val":      dast_old_val if algo == "dast_old"       else None,
+                        "mst_val":           mst_val      if algo == "mst"            else None,
+                        "kmeans-standard_val": sil        if algo == "kmeans-standard" else None,
+                        "kmeans-da_val":     da_km        if algo == "kmeans-da"      else None,
+                        "gmm-standard_val":  bic_gmm      if algo == "gmm-standard"   else None,
+                        "gmm-da_val":        da_gmm       if algo == "gmm-da"         else None,
+                        "clr-standard_val":  bic_clr      if algo == "clr-standard"   else None,
+                        "clr-da_val":        da_clr       if algo == "clr-da"         else None,
+                        "ARI":               S["ARI"],
+                        "NMI":               S["NMI"],
+                        "regret":            P["regret"],
+                        "mistreatment_rate": P["mistreatment_rate"],
+                        "manager_profit":    P["manager_profit"],
+                    })
 
             df_M = pd.DataFrame(results_M)
 
@@ -291,14 +279,38 @@ def _run_one_sim(packed_args):
                 "mistreatment_rate":          row['mistreatment_rate'] if row is not None else None,
             }
 
-            # ── Final retrain on full pilot data ──────────────────────────────
-            # Restore split10 directly — no call to split_pilot / compute_gamma_scores.
+            # ── Final fit on full pilot data ──────────────────────────────────
             _restore_pop_split(pop, split10)
             x_mat_tr = split10['x_mat_tr']
             D_vec_tr = split10['D_vec_tr']
             y_vec_tr = split10['y_vec_tr']
 
-            if algo == "gmm-standard":
+            meta_labels = act_id = None
+
+            if is_meta:
+                if algo == "t_learner":
+                    meta_labels, act_id = T_learner(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                elif algo == "s_learner":
+                    meta_labels, act_id = S_learner(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                elif algo == "x_learner":
+                    meta_labels, act_id = X_learner(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                elif algo == "causal_forest":
+                    meta_labels, act_id = causal_forest_predict(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                elif algo == "policy_tree":
+                    from policy_tree import policy_tree_predict
+                    meta_labels, act_id = policy_tree_predict(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                elif algo == "dr_learner":
+                    meta_labels, act_id = DR_learner(
+                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                else:
+                    raise ValueError(f"Unknown HTE algorithm: {algo}")
+
+            elif algo == "gmm-standard":
                 _, gmm_model = GMM_segment_and_estimate(
                     pop, retrain_M, x_mat_tr, D_vec_tr, y_vec_tr, algo,
                     include_interactions, random_state=seed,
@@ -311,14 +323,6 @@ def _run_one_sim(packed_args):
                     include_interactions, random_state=seed,
                     is_discrete=(outcome_type == 'discrete'))
                 assign_new_customers_to_segments(pop, pop.implement_customers, gmm_model, algo)
-
-            elif algo == "policy_tree":
-                d_pt = 1 if retrain_M <= 2 else (2 if retrain_M <= 4 else (3 if retrain_M <= 8 else 4))
-                _, opt_pt, leaf_map = policy_tree_segment_and_estimate(
-                    pop, d_pt, retrain_M,
-                    x_mat_tr, D_vec_tr, y_vec_tr,
-                    use_hybrid_method=False, include_interactions=include_interactions)
-                assign_new_customers_to_pruned_tree(opt_pt, pop, pop.implement_customers, leaf_map, algo)
 
             elif algo == "dast":
                 opt_tree, _, seg_dict = DAST_segment_and_estimate(
@@ -356,7 +360,6 @@ def _run_one_sim(packed_args):
                 assign_new_customers_to_segments(pop, pop.implement_customers, km_model, algo)
 
             elif algo == "clr-standard":
-                # num_tries=8 for final retrain (full quality)
                 _, CLR = CLR_segment_and_estimate(
                     pop, retrain_M, x_mat_tr, D_vec_tr, y_vec_tr,
                     args.kmeans_coef, num_tries=8, algo=algo,
@@ -370,27 +373,10 @@ def _run_one_sim(packed_args):
                     include_interactions=include_interactions, random_state=seed)
                 assign_new_customers_to_segments(pop, pop.implement_customers, CLR, algo)
 
-            elif algo == "t_learner":
-                meta_labels, act_id = T_learner(
-                    pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+            else:
+                raise ValueError(f"Unknown algorithm: {algo}")
 
-            elif algo == "s_learner":
-                meta_labels, act_id = S_learner(
-                    pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
-
-            elif algo == "x_learner":
-                meta_labels, act_id = X_learner(
-                    pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
-
-            elif algo == "causal_forest":
-                meta_labels, act_id = causal_forest_predict(
-                    pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
-
-            elif algo == "dr_learner":
-                meta_labels, act_id = DR_learner(
-                    pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
-
-            if args.plot and algo in ["kmeans-standard", "kmeans-da", "gmm-standard", "gmm-da"]:
+            if args.plot and not is_meta and algo in ["kmeans-standard", "kmeans-da", "gmm-standard", "gmm-da"]:
                 labels_plot = np.array([c.est_segment[algo].segment_id for c in pop.train_customers])
                 plot_segmentation(labels_plot, x_mat_tr, y_vec_tr, D_vec_tr, algo, M=retrain_M, run_idx=sim_idx)
 

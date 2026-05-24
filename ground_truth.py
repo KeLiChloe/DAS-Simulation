@@ -4,10 +4,6 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.neural_network import MLPRegressor, MLPClassifier
 from econml.dr import DRLearner
-import rpy2.robjects as ro
-from rpy2.robjects import numpy2ri, default_converter
-from rpy2.robjects.packages import importr
-from rpy2.robjects.conversion import localconverter
 from scipy.spatial.distance import pdist, squareform
 
 

@@ -1,300 +1,151 @@
+"""
+Policy Tree individual-level policy recommendations via R's policytree package.
+
+Workflow (aligned with causal_forest / meta-learners):
+1. Fit a GRF forest on pilot data
+2. Compute doubly-robust scores (Gamma)
+3. Fit a shallow policy tree on (X, Gamma)
+4. Predict recommended action per implementation customer (type="action.id")
+"""
+
 import numpy as np
-from itertools import combinations
-import rpy2.robjects as ro
-from rpy2.robjects import numpy2ri, default_converter
-from rpy2.robjects.packages import importr
-from rpy2.robjects.conversion import localconverter
-from ground_truth import PopulationSimulator, SegmentEstimate
-from utils import assign_trained_customers_to_segments, estimate_segment_parameters, evaluate_on_validation, compute_node_DR_value
+
+_r_initialized = False
+_ro = None
+_grf = None
+_policytree = None
+_localconverter = None
+_default_converter = None
+_numpy2ri = None
 
 
+def _init_r():
+    global _r_initialized, _ro, _grf, _policytree
+    global _localconverter, _default_converter, _numpy2ri
+    if _r_initialized:
+        return
 
-# Import R packages
-grf = importr('grf')
-policytree = importr('policytree')
-grdevices = importr('grDevices')
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri, default_converter
+    from rpy2.robjects.conversion import localconverter
+    from rpy2.robjects.packages import importr
 
-# Load R libraries
-ro.r('library(policytree)')
-
-# Define R function to extract leaf-parent relationships
-ro.r('''
-    extract_leaf_parent_map <- function(tree) {
-    node_list <- as.list(tree)$nodes
-    leaf_to_parent <- list()
-
-    # Helper: walk by index (each node is stored by ID/index)
-    walk_tree <- function(node_id, parent_id = NA) {
-        node <- node_list[[node_id]]
-        if (is.null(node)) return(NULL)
-
-        if (!is.null(node$is_leaf) && node$is_leaf) {
-        leaf_to_parent[[as.character(node_id)]] <<- parent_id
-        } else {
-        walk_tree(node$left_child, node_id)
-        walk_tree(node$right_child, node_id)
-        }
-    }
-
-    walk_tree(1)  # Start from root node ID = 1
-    return(leaf_to_parent)
-    }
-    ''')
+    _ro = ro
+    _localconverter = localconverter
+    _default_converter = default_converter
+    _numpy2ri = numpy2ri
+    _grf = importr("grf")
+    _policytree = importr("policytree")
+    _r_initialized = True
+    print("[policy_tree] R packages loaded (grf, policytree)", flush=True)
 
 
-def compute_gamma_in_policy_tree_R(X_r, y_r, D_r, depth):
-    ro.globalenv['X_r'] = X_r
-    ro.globalenv['y_r'] = y_r
-    ro.globalenv['D_r'] = D_r
-    cforest = grf.causal_forest(X_r, y_r, D_r)
-    Gamma_r = policytree.double_robust_scores(cforest)
-    ro.globalenv['Gamma'] = Gamma_r
-    ro.r(f'tree <- policy_tree(X_r, Gamma, depth={depth})') 
-    with localconverter(default_converter + numpy2ri.converter):
-        Gamma = ro.conversion.rpy2py(Gamma_r)
-    return Gamma
-
-def policy_tree_segment_and_estimate(pop: PopulationSimulator, depth: int, target_leaf_num: int, x_mat_tr, D_vec_tr, y_vec_tr, x_mat_val=None, D_vec_val=None, y_vec_val=None, include_interactions=False, use_hybrid_method=False):
+def _gamma_column_actions(gamma_r):
     """
-    Perform policy tree-based segmentation and OLS-based estimation per segment.
+    Action label for each column of Gamma, in R column order.
 
-    Parameters:
-        pop: PopulationSimulator object with simulated data
-        depth: maximum depth of the policy tree
-        x_mat_val, D_vec_val, y_vec_val: optional validation data (None if no val set)
+    policytree::predict(..., type='action.id') returns 1..ncol(Gamma), i.e. a
+    1-based column index — NOT the raw treatment code from D_vec.
     """
-    # x_mat_tr = x_mat_tr[::2]  # (debugging)
-    # D_vec_tr = D_vec_tr[::2]
-    # y_vec_tr = y_vec_tr[::2]
-    
-    with localconverter(default_converter + numpy2ri.converter):
-        X_r_tr = ro.conversion.py2rpy(x_mat_tr)
-        y_r_tr = ro.conversion.py2rpy(y_vec_tr)
-        D_r_tr = ro.conversion.py2rpy(D_vec_tr)
-        
-        if x_mat_val is not None:
-            X_r_val = ro.conversion.py2rpy(x_mat_val)
-            y_r_val = ro.conversion.py2rpy(y_vec_val)
-            D_r_val = ro.conversion.py2rpy(D_vec_val)
-        else:
-            X_r_val = y_r_val = D_r_val = None
-    
-    if use_hybrid_method:
-        compute_gamma_in_policy_tree_R(X_r_tr, y_r_tr, D_r_tr, depth) # just to build the tree in R env
-        Gamma_tr = pop.gamma_train  # Already computed in correct order (train customers)
-    else:
-        Gamma_tr = compute_gamma_in_policy_tree_R(X_r_tr, y_r_tr, D_r_tr, depth)
-    
-    # Extract tree structure
-    leaf_to_parent_r = ro.r('extract_leaf_parent_map(tree)')
-    leaf_to_parent_map = {
-        int(k): int(leaf_to_parent_r.rx2(k)[0])
-        for k in leaf_to_parent_r.names
-    }
+    n_cols = int(np.asarray(_ro.r("ncol")(gamma_r)).item())
+    if n_cols < 1:
+        raise ValueError("Gamma matrix has no columns")
 
-    # Predict segments/actions for training set
-    tree = ro.r('tree')
-    segment_r = policytree.predict_policy_tree(tree, X_r_tr, type="node.id")
-    action_r = policytree.predict_policy_tree(tree, X_r_tr, type="action.id")
-    segment_labels_raw = list(ro.conversion.rpy2py(segment_r))
+    colnames = _ro.r("colnames")(gamma_r)
+    if _ro.r["is.null"](colnames)[0]:
+        return np.arange(n_cols, dtype=int)
 
-    action_ids_raw = list(ro.conversion.rpy2py(action_r))  # (by default value 1 = action 0 (1st col in Gamma), value 2 = action 1 (2nd col in Gamma) )
-    action_ids = np.array([a - 1 for a in action_ids_raw]) # Normalize segment and action labels to start from 0
-    
-    segment_labels_pruned, action_ids_pruned, leaf_to_pruned_segment = post_prune_tree(
-        Y = y_vec_tr,
-        D = D_vec_tr,
-        segment_labels=np.array(segment_labels_raw), # ✅ raw IDs
-        action_ids=np.array(action_ids),
-        Gamma_tr=Gamma_tr,
-        target_leaf_num=target_leaf_num,
-        leaf_to_parent_map=leaf_to_parent_map,
-        use_hybrid_method=use_hybrid_method,
-        action_num=pop.action_num
+    labels = []
+    for name in list(colnames):
+        # GRF/policytree use "0","1","2" for numeric arms; parse to int.
+        labels.append(int(float(str(name))))
+    return np.asarray(labels, dtype=int)
+
+
+def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
+    """
+    Fit a policy tree and recommend an action for each implementation customer.
+
+    Parameters
+    ----------
+    implement_customers : list
+        Implementation customers (only .x is used for prediction).
+    x_mat, D_vec, y_vec : array-like
+        Pilot/training data used to fit the forest and policy tree.
+    depth : int
+        Maximum tree depth passed to R's policy_tree().
+
+    Returns
+    -------
+    recommended_idx : ndarray, shape (n_impl,)
+        0-based column index into action_identity (same convention as
+        np.argmax(..., axis=1) in meta-learners).
+    action_identity : ndarray, shape (n_actions,)
+        action_identity[j] is the treatment label for Gamma column j+1.
+        main.py uses: act_id[recommended_idx[i]].
+    """
+    _init_r()
+
+    x_mat = np.asarray(x_mat)
+    D_vec = np.asarray(D_vec)
+    y_vec = np.asarray(y_vec)
+    unique_actions = np.unique(D_vec)
+    if len(unique_actions) < 2:
+        raise ValueError(
+            f"policy_tree needs >= 2 actions in training data, got {unique_actions}"
+        )
+
+    X_impl = np.array([cust.x for cust in implement_customers])
+    n_train, n_impl = x_mat.shape[0], X_impl.shape[0]
+    print(
+        f"[policy_tree] start: n_train={n_train}, n_impl={n_impl}, "
+        f"d={x_mat.shape[1]}, depth={depth}, actions={unique_actions.tolist()}",
+        flush=True,
     )
 
-    # Assign each train customer to estimated segment
-    algo = "policy_tree"
-    estimate_segment_and_assign(pop, target_leaf_num, segment_labels_pruned, x_mat_tr, D_vec_tr, y_vec_tr, action_ids_pruned, algo, include_interactions)
+    with _localconverter(_default_converter + _numpy2ri.converter):
+        X_r = _ro.conversion.py2rpy(x_mat)
+        y_r = _ro.conversion.py2rpy(y_vec)
+        D_r = _ro.conversion.py2rpy(D_vec)
+        X_impl_r = _ro.conversion.py2rpy(X_impl)
 
-    # assign validation customers to segments
-    val_score = None
-    if len(pop.val_customers) > 0 and x_mat_val is not None:
-        assign_new_customers_to_pruned_tree(tree, pop, pop.val_customers, leaf_to_pruned_segment, algo)
-        if use_hybrid_method is True:
-            Gamma_val = pop.gamma_val  # Already computed in correct order (val customers)
-        else:
-            Gamma_val = compute_gamma_in_policy_tree_R(X_r_val, y_r_val, D_r_val, depth)
-        val_score = evaluate_on_validation(pop, algo=f"{algo}", Gamma_val=Gamma_val)
-    
-    # plot_segment_sankey(segment_labels, segment_labels_pruned)
-    
-    # Clean up R environment to avoid memory leaks
-    ro.r('rm(tree, X_r, Gamma)')
-    ro.r('gc()')  # Trigger R's garbage collector
-    return val_score, tree, leaf_to_pruned_segment
+        print("[policy_tree] fitting multi_arm_causal_forest ...", flush=True)
+        forest = _grf.multi_arm_causal_forest(X_r, y_r, D_r)
 
+        print("[policy_tree] computing double_robust_scores (Gamma) ...", flush=True)
+        gamma_r = _policytree.double_robust_scores(forest)
+        action_identity = _gamma_column_actions(gamma_r)
+        n_gamma = int(np.asarray(_ro.r("nrow")(gamma_r)).item())
+        print(
+            f"[policy_tree] Gamma: {n_gamma} x {len(action_identity)}, "
+            f"column actions (R order) = {action_identity.tolist()}",
+            flush=True,
+        )
 
+        print(f"[policy_tree] fitting policy_tree(depth={depth}) ...", flush=True)
+        tree = _policytree.policy_tree(X_r, gamma_r, depth=depth)
 
-def estimate_segment_and_assign(pop: PopulationSimulator, target_leaf_num, segment_labels, x_mat, D_vec, y_vec, action_ids, algo, include_interactions):
-    """
-    Estimate parameters for each segment and assign customers to segments.
-    Returns:
-        None, modifies pop.customers in-place
-    """
-    # important to reset!!!
-    pop.est_segments_list[f"{algo}"] = []  # Reset
-    
-    for m in range(target_leaf_num):
-        idx_m = np.where(segment_labels == m)[0]
-        if len(idx_m) == 0:
-            raise ValueError(f"No customers assigned to segment {m}. ")
+        print("[policy_tree] predicting actions on implementation set ...", flush=True)
+        action_r = _policytree.predict_policy_tree(tree, X_impl_r, type="action.id")
+        action_ids_raw = np.asarray(_ro.conversion.rpy2py(action_r), dtype=int)
 
-        x_m = x_mat[idx_m]
-        D_m = D_vec[idx_m]
-        y_m = y_vec[idx_m]
+    # R: 1..n_cols (column index)  →  Python: 0..n_cols-1 (for act_id[·])
+    recommended_idx = action_ids_raw - 1
+    recommended_actions = action_identity[recommended_idx]
 
-        est_tau, _ = estimate_segment_parameters(x_m, D_m, y_m)
-        
-        est_action = action_ids[idx_m[0]]
-        assert np.all(action_ids[idx_m] == action_ids[idx_m[0]]), "Inconsistent actions within segment"
-        est_seg = SegmentEstimate(est_tau, est_action, segment_id=m)
-        pop.est_segments_list[f"{algo}"].append(est_seg)
-    
-    assign_trained_customers_to_segments(pop, segment_labels, f"{algo}")
+    n_cols = len(action_identity)
+    if np.any(recommended_idx < 0) or np.any(recommended_idx >= n_cols):
+        raise ValueError(
+            f"R action.id out of range [1, {n_cols}]; "
+            f"got min={action_ids_raw.min()}, max={action_ids_raw.max()}"
+        )
 
-import numpy as np
-from itertools import combinations
+    unique_rec, counts = np.unique(recommended_actions, return_counts=True)
+    dist = ", ".join(f"a={a}:{c}" for a, c in zip(unique_rec, counts))
+    print(
+        f"[policy_tree] done: R action.id in [{action_ids_raw.min()}, {action_ids_raw.max()}], "
+        f"recommended actions {{{dist}}}",
+        flush=True,
+    )
 
-def post_prune_tree(Y, D, segment_labels, action_ids, Gamma_tr, target_leaf_num, leaf_to_parent_map, use_hybrid_method, action_num=None):
-    """
-    Prune only sibling leaf segments (same parent in tree structure).
-
-    Parameters:
-        segment_labels: np.ndarray of segment IDs (raw R leaf IDs)
-        action_ids: np.ndarray of actions per sample
-        Gamma_tr: np.ndarray of DR scores of training samples
-        target_leaf_num: desired number of leaf segments
-        leaf_to_parent_map: dict {leaf_id → parent_id}, from R
-        verbose: bool, print merge steps if True
-
-    Returns:
-        pruned_segment_labels, pruned_action_ids, leaf_to_pruned_segment
-    """
-
-    # Build initial segment-to-sample index map
-    # Root node idx is 1. 
-    # Here the segment IDs "s" start from leaf IDs. For example, when the depth = 2, the segment leaves IDs are 4, 5, 6, 7.
-    segment_map = {
-        s: np.where(segment_labels == s)[0].astype(int)
-        for s in sorted(set(segment_labels))
-    } 
-    segment_to_leaves = {s: {s} for s in segment_map}
-    
-    # Segment action: start from the action of (any) sample in the segment
-    for _, idxs in segment_map.items():
-        assert np.all(action_ids[idxs] == action_ids[idxs[0]]), "Inconsistent actions within segment"
-
-    
-    action_map = {s: int(action_ids[idxs[0]]) for s, idxs in segment_map.items()}
-
-    while len(segment_map) > target_leaf_num:
-        best_pair = None
-        best_action = None
-        min_welfare_loss = float("inf")
-
-        segments = list(segment_map.keys())
-
-        for s1, s2 in combinations(segments, 2):
-            # Only merge if ALL constituent leaves share the same parent
-            combined_leaves = segment_to_leaves[s1] | segment_to_leaves[s2]
-            combined_parents = {leaf_to_parent_map[leaf] for leaf in combined_leaves}
-            if len(combined_parents) != 1:
-                continue
-
-            # Evaluate welfare of the merged segment (choose best action for merged)
-            idx1, idx2 = segment_map[s1], segment_map[s2]
-            merged_idx = np.concatenate([idx1, idx2])
-
-            # Choose the action that maximizes merged welfare
-            merged_node_value  = compute_node_DR_value(Y, D, Gamma_tr, merged_idx, use_hybrid_method, action_num)
-            merged_node_action = np.argmax(Gamma_tr[merged_idx].mean(axis=0))
-
-
-            # Original welfare = sum of each segment's welfare under its own action
-            w1 = compute_node_DR_value(Y, D, Gamma_tr, idx1, use_hybrid_method, action_num)
-            w2 = compute_node_DR_value(Y, D, Gamma_tr, idx2, use_hybrid_method, action_num)
-            original_total = w1 + w2
-
-            loss = original_total - merged_node_value
-            if loss <= min_welfare_loss:
-                best_pair = (s1, s2)
-                best_action = merged_node_action
-                min_welfare_loss = loss
-
-        # If no legal sibling pair exists, stop (or raise if you require strict target)
-        if best_pair is None:
-            raise ValueError(
-                f"No legal sibling pairs found to prune to {target_leaf_num} segments. "
-                f"Current segments: {len(segment_map)}"
-            )
-
-        s1, s2 = best_pair
-        new_seg_id = min(s1, s2)  # keep a stable id
-        drop_seg_id = s2 if new_seg_id == s1 else s1
-
-        # Merge data
-        merged_indices = np.concatenate([segment_map[s1], segment_map[s2]])
-        segment_map[new_seg_id] = merged_indices
-        action_map[new_seg_id] = best_action
-        segment_to_leaves[new_seg_id] = segment_to_leaves[s1] | segment_to_leaves[s2]
-        
-        # Remove dropped segment
-        for d in (drop_seg_id,):
-            del segment_map[d]
-            del action_map[d]
-            del segment_to_leaves[d]
-
-    # Reindex to 0-based contiguous segments
-    final_segments = sorted(segment_map.keys())
-    seg_id_map = {old: new for new, old in enumerate(final_segments)}
-
-    pruned_segment_labels = np.zeros(len(segment_labels), dtype=int)
-    pruned_action_ids = np.zeros(len(segment_labels), dtype=int)
-
-    for old_seg, indices in segment_map.items():
-        new_seg = seg_id_map[old_seg]
-        pruned_segment_labels[indices] = new_seg
-        pruned_action_ids[indices] = int(action_map[old_seg])
-
-    # Map original leaves → pruned segment ids
-    leaf_to_pruned_segment = {}
-    for seg_id, leaf_set in segment_to_leaves.items():
-        for leaf in leaf_set:
-            if seg_id in seg_id_map:  # seg_id should exist, but be defensive
-                leaf_to_pruned_segment[leaf] = seg_id_map[seg_id]
-
-    return pruned_segment_labels, pruned_action_ids, leaf_to_pruned_segment
-    
-def assign_new_customers_to_pruned_tree(tree, pop, new_customers, leaf_to_pruned_segment, algo):
-    """
-    Assign each validation customer to a policy tree segment (based on pruned structure).
-    """
-    x_mat_new = np.array([cust.x for cust in new_customers])
-
-    with localconverter(default_converter + numpy2ri.converter):
-        X_new_r = ro.conversion.py2rpy(x_mat_new)
-
-    
-    # Predict raw segment (leaf ID, starting not from 0, but from a positive number) for each val customer
-    segment_r = policytree.predict_policy_tree(tree, X_new_r, type="node.id")
-    segment_ids = list(ro.conversion.rpy2py(segment_r))
-
-    for cust, raw_leaf in zip(new_customers, segment_ids):
-        pruned_seg = leaf_to_pruned_segment[raw_leaf]  # maps raw leaf ID → pruned segment index
-        segment_obj = pop.est_segments_list[f"{algo}"][pruned_seg]
-
-        # assign segment to val customer
-        cust.est_segment[f"{algo}"] = segment_obj
-
-
+    return recommended_idx.astype(int), action_identity

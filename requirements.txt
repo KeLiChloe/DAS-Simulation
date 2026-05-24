@@ -4,7 +4,8 @@
 # Notes:
 # - Tested target: Python 3.10–3.12. Python 3.14 may lack wheels for some packages
 #   (econml, rpy2, lightgbm, xgboost); use 3.11/3.12 if install fails.
-# - policy_tree also needs R packages (install in R, not pip):
+# - rpy2>=3.6 needs R>=4.4; for system R 4.3.x use rpy2>=3.5,<3.6
+# - policy_tree algorithm needs R packages (install in R, not pip):
 #     install.packages(c("grf", "policytree"))
 
 # ── Core simulation (main.py, ground_truth, algorithms) ─────────────────────
@@ -17,8 +18,9 @@ tqdm>=4.65
 # DR gamma / meta-learners / MST / CLR / clustering
 econml>=0.14
 
-# Policy tree comparator (R bridge; imported by ground_truth & policy_tree.py)
-rpy2>=3.5
+# Policy tree individual policy (policy_tree.py; optional — only needed when running policy_tree)
+# rpy2>=3.6 needs R>=4.4; for system R 4.3.x use rpy2>=3.5,<3.6
+rpy2>=3.5,<3.6
 
 # Optional DR outcome models (--DR_generation_method lightgbm | xgboost)
 lightgbm>=4.0
