@@ -14,6 +14,7 @@ from causal_forest import causal_forest_predict
 from utils import assign_new_customers_to_segments, pick_M_for_algo, parse_args
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 from tqdm import tqdm
 import random
 import multiprocessing
