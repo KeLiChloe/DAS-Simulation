@@ -8,7 +8,7 @@ import os
 _ACTION_MARKERS = ['o', 'x', '^', 's', 'D', 'v', 'P', '*']
 
 
-def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None):
+def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=None):
     """
     Visualize segmentation with:
       - Color per segment
@@ -128,7 +128,11 @@ def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None):
     ax.legend(by_label.values(), by_label.keys(), fontsize=7, ncol=2, loc='best')
 
     plt.tight_layout()
-    plt.savefig(f"figures/{algo}_segmentation_{M}.png", dpi=300)
+    if run_idx is None:
+        out_name = f"{algo}_segmentation_{M}.png"
+    else:
+        out_name = f"{algo}_segmentation_{M}_run{run_idx}.png"
+    plt.savefig(os.path.join("figures", out_name), dpi=300)
     plt.close()
 
 
@@ -171,7 +175,8 @@ def extract_tree_splits(tree):
 def plot_ground_truth(df, title="Ground-Truth Segmentation",
                       segment_col='true_segment_id',
                       x_col='x_0', x2_col='x_1',
-                      y_col='outcome', D_col='D_i'):
+                      y_col='outcome', D_col='D_i',
+                      run_idx=None, out_dir="figures"):
     """
     Plot ground-truth segmentation.
       - Color per true segment
@@ -184,7 +189,7 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
     df         : DataFrame from pop.to_dataframe()
     x2_col     : second covariate column for 3D; set to None to force 2D
     """
-    os.makedirs("figures", exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     segments       = sorted(df[segment_col].unique())
     unique_actions = sorted(df[D_col].unique())
@@ -241,7 +246,11 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
     ax.legend(by_label.values(), by_label.keys(), fontsize=7, ncol=2, loc='best')
 
     plt.tight_layout()
-    plt.savefig("figures/ground_truth_plot.png", dpi=300)
+    if run_idx is None:
+        fname = os.path.join(out_dir, "ground_truth_plot.png")
+    else:
+        fname = os.path.join(out_dir, f"ground_truth_plot_run{run_idx}.png")
+    plt.savefig(fname, dpi=300)
     plt.close()
 
 

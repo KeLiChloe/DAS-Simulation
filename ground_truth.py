@@ -556,169 +556,132 @@ class PopulationSimulator:
 
 
     
-    def compute_gamma_scores(self, method, train_customers, val_customers):
+    def compute_gamma_scores(self, method, train_customers, val_customers, n_crossfit_folds=5):
         """
         Compute doubly robust (DR) scores for both training and validation customers.
-        
+
         Strategy:
-        1. Fit outcome models on TRAIN data
-        2. Predict and compute DR scores on both TRAIN and VAL data
-        
+        - Gamma_train : K-fold cross-fitting so every train sample gets an
+                        out-of-fold mu prediction (avoids in-sample overfitting).
+        - Gamma_val   : mu models fitted on ALL train data, predicted on val
+                        (already out-of-sample, no cross-fitting needed).
+
         Parameters:
         method : str
-            Method for computing gamma ('reg', 'mlp', or 'forest')
+            Outcome model type ('reg', 'mlp', 'lightgbm', 'random_forest', 'xgboost')
         train_customers : list
-            Training customers
-        val_customers : list
-            Validation customers (can be empty)
-            
+        val_customers : list  (can be empty)
+        n_crossfit_folds : int
+            Number of folds for cross-fitting Gamma_train (default 5)
+
         Returns:
-        Gamma_train : array-like, shape (N_train, 2)
-            DR scores for training customers
-        Gamma_val : array-like, shape (N_val, 2) or None
-            DR scores for validation customers (None if val_customers is empty)
+        Gamma_train : np.ndarray, shape (N_train, n_actions)
+        Gamma_val   : np.ndarray, shape (N_val, n_actions), or None
         """
         # Extract train data
         X_train = np.array([cust.x for cust in train_customers])
         D_train = np.array([cust.D_i for cust in train_customers])
-        Y_train = np.array([cust.y for cust in train_customers])
-        
-        # Extract validation data (handle empty case)
-        if len(val_customers) > 0:
-            X_val = np.array([cust.x for cust in val_customers])
-            D_val = np.array([cust.D_i for cust in val_customers])
-            Y_val = np.array([cust.y for cust in val_customers])
-        else:
-            X_val = None
-            D_val = None
-            Y_val = None
-        
-        # Empirical propensity scores: e[a] = P(D=a) for each action a
-        n_actions = self.action_num
-        e = np.array([np.mean(D_train == a) for a in range(n_actions)])
-        e = np.clip(e, 1e-6, 1.0)  # avoid division by zero
+        Y_train = np.array([cust.y  for cust in train_customers])
 
+        if len(val_customers) > 0:
+            X_val = np.array([cust.x  for cust in val_customers])
+            D_val = np.array([cust.D_i for cust in val_customers])
+            Y_val = np.array([cust.y  for cust in val_customers])
+        else:
+            X_val = D_val = Y_val = None
+
+        n_actions  = self.action_num
         is_discrete = self.outcome_type == 'discrete'
 
+        # Propensity scores estimated from full training data
+        e = np.array([np.mean(D_train == a) for a in range(n_actions)])
+        e = np.clip(e, 1e-6, 1.0)
+
+        # ── helpers ───────────────────────────────────────────────────────────
+
         def _predict_mu(model, X):
-            """Return E[Y|X] - for classifiers, return P(Y=1|X)."""
             if hasattr(model, 'predict_proba'):
                 return model.predict_proba(X)[:, 1]
             return model.predict(X)
 
         def _compute_gamma(X, D, Y, models):
-            """
-            DR score for each action a:
-            Gamma[i, a] = mu_a(X_i) + (1/e[a]) * 1[D_i == a] * (Y_i - mu_a(X_i))
-            Works for both continuous (mu_a = E[Y]) and discrete (mu_a = P(Y=1)).
-            """
+            """Gamma[i,a] = mu_a(X_i) + (1/e[a]) * 1[D_i==a] * (Y_i - mu_a(X_i))"""
             N = X.shape[0]
             Gamma = np.zeros((N, n_actions))
             for a in range(n_actions):
-                mu_a = _predict_mu(models[a], X)
+                mu_a      = _predict_mu(models[a], X)
                 indicator = (D == a).astype(float)
                 Gamma[:, a] = mu_a + (indicator / e[a]) * (Y - mu_a)
             return Gamma
 
-        if method == "reg":
+        def _make_model():
+            """Return a fresh unfitted model for the current method."""
+            if method == "reg":
+                return LogisticRegression(max_iter=1000) if is_discrete else LinearRegression()
+            elif method == "mlp":
+                return (MLPClassifier(hidden_layer_sizes=(64, 32), activation='relu', max_iter=10000)
+                        if is_discrete else
+                        MLPRegressor(hidden_layer_sizes=(64, 32), activation='relu', max_iter=10000))
+            elif method == "lightgbm":
+                try:
+                    from lightgbm import LGBMClassifier, LGBMRegressor
+                except ImportError:
+                    raise ImportError("lightgbm is not installed. Run: pip install lightgbm")
+                return (LGBMClassifier(n_estimators=500, verbose=-1)
+                        if is_discrete else LGBMRegressor(n_estimators=500, verbose=-1))
+            elif method == "random_forest":
+                from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+                return (RandomForestClassifier(n_estimators=500, n_jobs=-1, random_state=42)
+                        if is_discrete else
+                        RandomForestRegressor(n_estimators=500, n_jobs=-1, random_state=42))
+            elif method == "xgboost":
+                try:
+                    from xgboost import XGBClassifier, XGBRegressor
+                except ImportError:
+                    raise ImportError("xgboost is not installed. Run: pip install xgboost")
+                return (XGBClassifier(n_estimators=500, verbosity=0, random_state=42)
+                        if is_discrete else
+                        XGBRegressor(n_estimators=500, verbosity=0, random_state=42))
+            else:
+                raise ValueError(f"Unknown DR generation method: '{method}'. "
+                                 f"Choose from: reg, mlp, lightgbm, random_forest, xgboost")
+
+        def _build_models(X, D, Y):
+            """Fit one mu_a model per action on the provided subset."""
             models = {}
             for a in range(n_actions):
-                X_a = X_train[D_train == a]
-                Y_a = Y_train[D_train == a]
+                mask = D == a
+                X_a, Y_a = X[mask], Y[mask]
                 if len(X_a) == 0:
                     raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
-                if is_discrete:
-                    m = LogisticRegression(max_iter=1000)
-                else:
-                    m = LinearRegression()
-                m.fit(X_a, Y_a)
-                models[a] = m
-
-            Gamma_train = _compute_gamma(X_train, D_train, Y_train, models)
-            Gamma_val = _compute_gamma(X_val, D_val, Y_val, models) if X_val is not None and len(X_val) > 0 else None
-
-        elif method == "mlp":
-            models = {}
-            for a in range(n_actions):
-                X_a = X_train[D_train == a]
-                Y_a = Y_train[D_train == a]
-                if len(X_a) == 0:
-                    raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
-                if is_discrete:
-                    m = MLPClassifier(hidden_layer_sizes=(64, 32), activation='relu', max_iter=10000)
-                else:
-                    m = MLPRegressor(hidden_layer_sizes=(64, 32), activation='relu', max_iter=10000)
-                m.fit(X_a, Y_a)
-                models[a] = m
-
-            Gamma_train = _compute_gamma(X_train, D_train, Y_train, models)
-            Gamma_val = _compute_gamma(X_val, D_val, Y_val, models) if X_val is not None and len(X_val) > 0 else None
-
-        elif method == "lightgbm":
-            try:
-                from lightgbm import LGBMRegressor, LGBMClassifier
-            except ImportError:
-                raise ImportError("lightgbm is not installed. Run: pip install lightgbm")
-            models = {}
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=".*valid feature names.*", category=UserWarning)
-                for a in range(n_actions):
-                    X_a = X_train[D_train == a]
-                    Y_a = Y_train[D_train == a]
-                    if len(X_a) == 0:
-                        raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
-                    if is_discrete:
-                        m = LGBMClassifier(n_estimators=500, verbose=-1)
-                    else:
-                        m = LGBMRegressor(n_estimators=500, verbose=-1)
+                m = _make_model()
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*valid feature names.*",
+                                            category=UserWarning)
                     m.fit(X_a, Y_a)
-                    models[a] = m
-
-                Gamma_train = _compute_gamma(X_train, D_train, Y_train, models)
-                Gamma_val = _compute_gamma(X_val, D_val, Y_val, models) if X_val is not None and len(X_val) > 0 else None
-
-        elif method == "random_forest":
-            from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-            models = {}
-            for a in range(n_actions):
-                X_a = X_train[D_train == a]
-                Y_a = Y_train[D_train == a]
-                if len(X_a) == 0:
-                    raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
-                if is_discrete:
-                    m = RandomForestClassifier(n_estimators=500, n_jobs=-1, random_state=42)
-                else:
-                    m = RandomForestRegressor(n_estimators=500, n_jobs=-1, random_state=42)
-                m.fit(X_a, Y_a)
                 models[a] = m
+            return models
 
-            Gamma_train = _compute_gamma(X_train, D_train, Y_train, models)
-            Gamma_val = _compute_gamma(X_val, D_val, Y_val, models) if X_val is not None and len(X_val) > 0 else None
+        def _crossfit_gamma_train():
+            """K-fold cross-fitting: each train sample gets an out-of-fold prediction."""
+            N = len(X_train)
+            Gamma_cf   = np.zeros((N, n_actions))
+            fold_idx   = np.array_split(np.arange(N), n_crossfit_folds)
+            for k, val_idx in enumerate(fold_idx):
+                tr_idx   = np.concatenate([fold_idx[j] for j in range(n_crossfit_folds) if j != k])
+                models_k = _build_models(X_train[tr_idx], D_train[tr_idx], Y_train[tr_idx])
+                Gamma_cf[val_idx] = _compute_gamma(
+                    X_train[val_idx], D_train[val_idx], Y_train[val_idx], models_k)
+            return Gamma_cf
 
-        elif method == "xgboost":
-            try:
-                from xgboost import XGBRegressor, XGBClassifier
-            except ImportError:
-                raise ImportError("xgboost is not installed. Run: pip install xgboost")
-            models = {}
-            for a in range(n_actions):
-                X_a = X_train[D_train == a]
-                Y_a = Y_train[D_train == a]
-                if len(X_a) == 0:
-                    raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
-                if is_discrete:
-                    m = XGBClassifier(n_estimators=500, verbosity=0, random_state=42)
-                else:
-                    m = XGBRegressor(n_estimators=500, verbosity=0, random_state=42)
-                m.fit(X_a, Y_a)
-                models[a] = m
+        # ── compute ───────────────────────────────────────────────────────────
 
-            Gamma_train = _compute_gamma(X_train, D_train, Y_train, models)
-            Gamma_val = _compute_gamma(X_val, D_val, Y_val, models) if X_val is not None and len(X_val) > 0 else None
+        # Full-train models are used only for Gamma_val (already out-of-sample)
+        models_full = _build_models(X_train, D_train, Y_train)
 
-        else:
-            raise ValueError(f"Unknown DR generation method: '{method}'. "
-                             f"Choose from: reg, mlp, lightgbm, random_forest, xgboost")
+        Gamma_train = _crossfit_gamma_train()
+        Gamma_val   = (_compute_gamma(X_val, D_val, Y_val, models_full)
+                       if X_val is not None and len(X_val) > 0 else None)
 
         return Gamma_train, Gamma_val
 

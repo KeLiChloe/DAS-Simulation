@@ -69,9 +69,10 @@ LABEL_MAP = {
 # Axis / title labels indexed by experiment parameter name
 # ------------------------------------------------------------------
 X_LABEL_MAP = {
-    "d":     "Dimension $d$",
-    "K":     "Ground-truth number of clusters ($K$)",
-    "delta": r"Magnitude of interaction effects ($\delta$)",
+    "d":      "Dimension $d$",
+    "K":      "Ground-truth number of clusters ($K$)",
+    "delta":  r"Magnitude of interaction effects ($\delta$)",
+    "Xnoise": r"Within-cluster covariate noise scale ($X_{\mathrm{noise}}$ std. scale)",
 }
 
 # ------------------------------------------------------------------

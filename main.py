@@ -19,7 +19,6 @@ from tqdm import tqdm
 import random
 import multiprocessing
 import pickle
-multiprocessing.set_start_method('fork')
 import time
 import json
 import os
@@ -82,11 +81,11 @@ def _run_one_sim(packed_args):
     """
     args, param_range, seed, sim_idx, quiet = packed_args
 
-    # ── Silence all worker output in parallel mode ────────────────────────────
+    # Silence worker stdout/stderr so concurrent processes don't interleave output.
+    # With spawn, workers have their own stdout; with fork they share the parent's.
     if quiet:
-        _devnull = open(os.devnull, 'w')
-        sys.stdout = _devnull
-        sys.stderr = _devnull
+        sys.stdout = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
 
     np.random.seed(seed)
 
@@ -115,6 +114,10 @@ def _run_one_sim(packed_args):
     )
 
     if args.plot:
+        plot_ground_truth(
+            pop.to_dataframe(),
+            run_idx=sim_idx,
+        )
         plot_bernoulli_prob_histogram(
             pop.implement_customers,
             action_num=getattr(args, 'action_num'),
@@ -128,7 +131,7 @@ def _run_one_sim(packed_args):
     # Note: all algos sharing the same train_frac now use the SAME random split.
     # This is more statistically principled than the original (which produced a
     # different random split for every algo due to RNG state drift).
-    split07 = _build_split(pop, 0.7, args.d)
+    split07 = _build_split(pop, 0.8, args.d)
     split10 = _build_split(pop, 1.0, args.d)
 
     # ── Oracle profit (algorithm-independent, computed once per sim) ──────────
@@ -259,7 +262,8 @@ def _run_one_sim(packed_args):
                 }
             else:
                 if len(df_M) == 0:
-                    print(f"[sim {sim_idx}] WARNING: No valid M results for {algo}, skipping.")
+                    print(f"[sim {sim_idx}] WARNING: No valid M results for {algo}, skipping.",
+                          file=sys.__stderr__)
                     continue
                 oracle_picked_M = {
                     'Oracle_ARI':      df_M.at[df_M['ARI'].idxmax(),              'M'],
@@ -290,6 +294,9 @@ def _run_one_sim(packed_args):
             # ── Final retrain on full pilot data ──────────────────────────────
             # Restore split10 directly — no call to split_pilot / compute_gamma_scores.
             _restore_pop_split(pop, split10)
+            x_mat_tr = split10['x_mat_tr']
+            D_vec_tr = split10['D_vec_tr']
+            y_vec_tr = split10['y_vec_tr']
 
             if algo == "gmm-standard":
                 _, gmm_model = GMM_segment_and_estimate(
@@ -328,7 +335,7 @@ def _run_one_sim(packed_args):
                 opt_tree.predict_segment(pop.implement_customers, seg_dict)
 
             elif algo == "mst":
-                d_mst = 1 if retrain_M <= 2 else (2 if retrain_M <= 4 else (3 if retrain_M <= 6 else 4))
+                d_mst = 1 if retrain_M <= 2 else (2 if retrain_M <= 4 else (3 if retrain_M <= 8 else 4))
                 opt_tree, _, seg_dict = MST_segment_and_estimate(
                     pop, retrain_M, max_depth=d_mst, min_leaf_size=2,
                     epsilon=1e-2, algo=algo, include_interactions=include_interactions)
@@ -382,6 +389,10 @@ def _run_one_sim(packed_args):
             elif algo == "dr_learner":
                 meta_labels, act_id = DR_learner(
                     pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+
+            if args.plot and algo in ["kmeans-standard", "kmeans-da", "gmm-standard", "gmm-da"]:
+                labels_plot = np.array([c.est_segment[algo].segment_id for c in pop.train_customers])
+                plot_segmentation(labels_plot, x_mat_tr, y_vec_tr, D_vec_tr, algo, M=retrain_M, run_idx=sim_idx)
 
             # ── Evaluate implementation outcome ───────────────────────────────
             impl_outcome = 0.0
@@ -490,11 +501,17 @@ def main(args, param_range):
 
     start_time = time.time()
 
+    # pool must be initialised before the try/finally so the finally block can
+    # always safely reference it even if Pool() raises.
+    pool = None
     if n_workers == 1:
         results_iter = map(_run_one_sim, packed)
-        pool = None
     else:
-        pool = multiprocessing.Pool(processes=n_workers)
+        # fork is memory-efficient (copy-on-write) vs spawn (~400 MB per worker).
+        # BLAS deadlock prevention: set OMP/OPENBLAS/MKL_NUM_THREADS=1 in the
+        # shell script BEFORE launching Python (too late to set them here).
+        ctx  = multiprocessing.get_context('fork')
+        pool = ctx.Pool(processes=n_workers)
         results_iter = pool.imap_unordered(_run_one_sim, packed)
 
     try:

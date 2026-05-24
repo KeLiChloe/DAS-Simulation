@@ -1,0 +1,34 @@
+# Tiger Simulation — Python dependencies
+# Install: pip install -r requirements.txt
+#
+# Notes:
+# - Tested target: Python 3.10–3.12. Python 3.14 may lack wheels for some packages
+#   (econml, rpy2, lightgbm, xgboost); use 3.11/3.12 if install fails.
+# - policy_tree also needs R packages (install in R, not pip):
+#     install.packages(c("grf", "policytree"))
+
+# ── Core simulation (main.py, ground_truth, algorithms) ─────────────────────
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+scikit-learn>=1.3
+tqdm>=4.65
+
+# DR gamma / meta-learners / MST / CLR / clustering
+econml>=0.14
+
+# Policy tree comparator (R bridge; imported by ground_truth & policy_tree.py)
+rpy2>=3.5
+
+# Optional DR outcome models (--DR_generation_method lightgbm | xgboost)
+lightgbm>=4.0
+xgboost>=2.0
+
+# ── Plotting (main --plot, plot.py) ─────────────────────────────────────────
+matplotlib>=3.7
+
+# ── Analysis scripts (analysis/*.py) ────────────────────────────────────────
+seaborn>=0.13
+
+# ── Optional utilities ──────────────────────────────────────────────────────
+plotly>=5.0          # utils.plot_segment_sankey (Sankey diagrams)

@@ -34,8 +34,6 @@ def GMM_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat, D
         y_m = y_vec[idx_m]
         
         est_tau, est_action = estimate_segment_parameters(x_m, D_m, y_m)
-        # if is_discrete and est_action == (pop.action_num -1):
-        #     est_action = 0
         est_seg = SegmentEstimate(est_tau, est_action, segment_id=m)
         pop.est_segments_list[f"{algo}"].append(est_seg)
 

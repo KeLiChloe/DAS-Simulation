@@ -63,9 +63,9 @@ def policy_tree_segment_and_estimate(pop: PopulationSimulator, depth: int, targe
         depth: maximum depth of the policy tree
         x_mat_val, D_vec_val, y_vec_val: optional validation data (None if no val set)
     """
-    x_mat_tr = x_mat_tr[::2]  # Use every 2nd sample for faster execution (debugging)   
-    D_vec_tr = D_vec_tr[::2]
-    y_vec_tr = y_vec_tr[::2]
+    # x_mat_tr = x_mat_tr[::2]  # (debugging)
+    # D_vec_tr = D_vec_tr[::2]
+    # y_vec_tr = y_vec_tr[::2]
     
     with localconverter(default_converter + numpy2ri.converter):
         X_r_tr = ro.conversion.py2rpy(x_mat_tr)

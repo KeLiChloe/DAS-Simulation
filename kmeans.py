@@ -19,7 +19,7 @@ def KMeans_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat
         random_state: optional random seed for reproducibility
     """
 
-    kmeans_model = KMeans(n_clusters=n_segments, random_state=random_state, n_init=1)
+    kmeans_model = KMeans(n_clusters=n_segments, random_state=random_state)
     kmeans_labels = kmeans_model.fit_predict(x_mat)
     sil_score = silhouette_score(x_mat, kmeans_labels)
 
@@ -44,7 +44,6 @@ def KMeans_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat
     # Link each customer to estimated segment
     assign_trained_customers_to_segments(pop, kmeans_labels, algo)
     
-
     model_selection = algo.split("-")[-1]
     if model_selection == "standard":
         return sil_score, kmeans_model
