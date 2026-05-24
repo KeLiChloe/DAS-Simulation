@@ -17,11 +17,14 @@ _policytree = None
 _localconverter = None
 _default_converter = None
 _numpy2ri = None
+_FloatMatrix = None
+_FloatVector = None
 
 
 def _init_r():
     global _r_initialized, _ro, _grf, _policytree
     global _localconverter, _default_converter, _numpy2ri
+    global _FloatMatrix, _FloatVector
     if _r_initialized:
         return
 
@@ -29,11 +32,14 @@ def _init_r():
     from rpy2.robjects import numpy2ri, default_converter
     from rpy2.robjects.conversion import localconverter
     from rpy2.robjects.packages import importr
+    from rpy2.robjects.vectors import FloatMatrix, FloatVector
 
     _ro = ro
     _localconverter = localconverter
     _default_converter = default_converter
     _numpy2ri = numpy2ri
+    _FloatMatrix = FloatMatrix
+    _FloatVector = FloatVector
     _grf = importr("grf")
     _policytree = importr("policytree")
     _r_initialized = True
@@ -42,20 +48,20 @@ def _init_r():
 
 def _as_r_X(x_mat):
     """GRF expects X as a numeric matrix (n x p), even when p=1."""
-    x = np.asarray(x_mat, dtype=np.float64)
+    x = np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64))
     if x.ndim == 1:
         x = x.reshape(-1, 1)
     elif x.ndim != 2:
         raise ValueError(f"X must be 1D or 2D, got shape {x.shape}")
-    return _ro.FloatMatrix(x)
+    return _FloatMatrix(x)
 
 
 def _as_r_Y(y_vec):
     """GRF expects Y as a numeric vector."""
-    y = np.asarray(y_vec, dtype=np.float64).reshape(-1)
+    y = np.ascontiguousarray(np.asarray(y_vec, dtype=np.float64).reshape(-1))
     if y.size == 0:
         raise ValueError("Y is empty")
-    return _ro.FloatVector(y)
+    return _FloatVector(y)
 
 
 def _as_r_W(D_vec):
