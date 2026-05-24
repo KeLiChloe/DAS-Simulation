@@ -7,7 +7,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_april_2026/discrete/varying_overlapping/set_3"
+SAVE_DIR="exp_april_2026/discrete/varying_overlapping/set_4"
 mkdir -p "$SAVE_DIR"
 
 # ===== 实验循环 =====
@@ -24,25 +24,25 @@ for X_INT in $(seq 50 25 500); do
     # Discrete logistic model: p = sigmoid(alpha + beta@x + tau[D])
     python main.py \
         --outcome_type discrete \
-        --target_p_range 0.01 0.15 \
-        --winner_p_range 0.15 0.3 \
-        --beta_range -0.2 0.2 \
-        --delta_range -0.1 0.1 \
+        --target_p_range 0.01 0.10 \
+        --winner_p_range 0.10 0.3 \
+        --beta_range -0.3 0.3 \
+        --delta_range -0.05 0.05 \
         --disturb_covariate_noise 3 \
         --DR_generation_method lightgbm \
         --kmeans_coef 0.15 \
         --x_mean_range -50 50 \
-        --N_segment_size 100 \
+        --N_segment_size 20 \
         --implementation_scale 10 \
         --X_noise_std_scale "$X_NOISE" \
-        --K 5 \
+        --K 2 \
         --d 1 \
         --partial_x 1 \
         --action_num 3 \
         --N_sims 100 \
         --disallowed_ball_radius 0.2 \
         --save_file "$OUTFILE" \
-        --sequence_seed 999 \
+        --sequence_seed 108 \
         --n_workers 6 \
         --algorithms dast mst kmeans-standard gmm-standard clr-standard t_learner s_learner x_learner dr_learner causal_forest
 
