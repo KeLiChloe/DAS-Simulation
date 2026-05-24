@@ -17,14 +17,11 @@ _policytree = None
 _localconverter = None
 _default_converter = None
 _numpy2ri = None
-_FloatMatrix = None
-_FloatVector = None
 
 
 def _init_r():
     global _r_initialized, _ro, _grf, _policytree
     global _localconverter, _default_converter, _numpy2ri
-    global _FloatMatrix, _FloatVector
     if _r_initialized:
         return
 
@@ -32,42 +29,47 @@ def _init_r():
     from rpy2.robjects import numpy2ri, default_converter
     from rpy2.robjects.conversion import localconverter
     from rpy2.robjects.packages import importr
-    from rpy2.robjects.vectors import FloatMatrix, FloatVector
 
     _ro = ro
     _localconverter = localconverter
     _default_converter = default_converter
     _numpy2ri = numpy2ri
-    _FloatMatrix = FloatMatrix
-    _FloatVector = FloatVector
     _grf = importr("grf")
     _policytree = importr("policytree")
     _r_initialized = True
     print("[policy_tree] R packages loaded (grf, policytree)", flush=True)
 
 
+def _r_class(obj):
+    return [str(x) for x in _ro.r("class")(obj)]
+
+
 def _as_r_X(x_mat):
-    """GRF expects X as a numeric matrix (n x p), even when p=1."""
+    """GRF requires a native R matrix (class 'matrix'), not rpy2 FloatMatrix."""
     x = np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64))
     if x.ndim == 1:
         x = x.reshape(-1, 1)
     elif x.ndim != 2:
         raise ValueError(f"X must be 1D or 2D, got shape {x.shape}")
-    return _FloatMatrix(x)
+    n, p = x.shape
+    return _ro.r.matrix(_ro.FloatVector(x.reshape(-1)), nrow=n, ncol=p, byrow=True)
 
 
 def _as_r_Y(y_vec):
-    """GRF expects Y as a numeric vector."""
+    """GRF requires a native R numeric vector."""
     y = np.ascontiguousarray(np.asarray(y_vec, dtype=np.float64).reshape(-1))
     if y.size == 0:
         raise ValueError("Y is empty")
-    return _FloatVector(y)
+    return _ro.r["as.numeric"](_ro.FloatVector(y))
 
 
 def _as_r_W(D_vec):
-    """Treatment vector for multi_arm_causal_forest (factor avoids rpy2 type issues)."""
+    """Treatment factor for multi_arm_causal_forest."""
     w = np.asarray(D_vec).reshape(-1).astype(int)
     return _ro.r["as.factor"](_ro.IntVector(w))
+
+
+def _gamma_column_actions(gamma_r):
     """
     Action label for each column of Gamma, in R column order.
 
@@ -84,7 +86,6 @@ def _as_r_W(D_vec):
 
     labels = []
     for name in list(colnames):
-        # GRF/policytree use "0","1","2" for numeric arms; parse to int.
         labels.append(int(float(str(name))))
     return np.asarray(labels, dtype=int)
 
@@ -114,6 +115,8 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
     _init_r()
 
     x_mat = np.asarray(x_mat, dtype=np.float64)
+    if x_mat.ndim == 1:
+        x_mat = x_mat.reshape(-1, 1)
     D_vec = np.asarray(D_vec)
     y_vec = np.asarray(y_vec, dtype=np.float64).reshape(-1)
     unique_actions = np.unique(D_vec)
@@ -125,6 +128,7 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
     X_impl = np.asarray([cust.x for cust in implement_customers], dtype=np.float64)
     if X_impl.ndim == 1:
         X_impl = X_impl.reshape(-1, 1)
+
     n_train, n_impl = x_mat.shape[0], X_impl.shape[0]
     print(
         f"[policy_tree] start: n_train={n_train}, n_impl={n_impl}, "
@@ -139,8 +143,8 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
         X_impl_r = _as_r_X(X_impl)
 
         print(
-            f"[policy_tree] R types: X={type(X_r).__name__}, "
-            f"Y={type(y_r).__name__} len={len(y_r)}, W={type(D_r).__name__}",
+            f"[policy_tree] R classes: X={_r_class(X_r)}, "
+            f"Y={_r_class(y_r)} len={len(y_r)}, W={_r_class(D_r)}",
             flush=True,
         )
 
@@ -164,7 +168,6 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
         action_r = _policytree.predict_policy_tree(tree, X_impl_r, type="action.id")
         action_ids_raw = np.asarray(_ro.conversion.rpy2py(action_r), dtype=int)
 
-    # R: 1..n_cols (column index)  →  Python: 0..n_cols-1 (for act_id[·])
     recommended_idx = action_ids_raw - 1
     recommended_actions = action_identity[recommended_idx]
 
