@@ -40,7 +40,28 @@ def _init_r():
     print("[policy_tree] R packages loaded (grf, policytree)", flush=True)
 
 
-def _gamma_column_actions(gamma_r):
+def _as_r_X(x_mat):
+    """GRF expects X as a numeric matrix (n x p), even when p=1."""
+    x = np.asarray(x_mat, dtype=np.float64)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    elif x.ndim != 2:
+        raise ValueError(f"X must be 1D or 2D, got shape {x.shape}")
+    return _ro.FloatMatrix(x)
+
+
+def _as_r_Y(y_vec):
+    """GRF expects Y as a numeric vector."""
+    y = np.asarray(y_vec, dtype=np.float64).reshape(-1)
+    if y.size == 0:
+        raise ValueError("Y is empty")
+    return _ro.FloatVector(y)
+
+
+def _as_r_W(D_vec):
+    """Treatment vector for multi_arm_causal_forest (factor avoids rpy2 type issues)."""
+    w = np.asarray(D_vec).reshape(-1).astype(int)
+    return _ro.r["as.factor"](_ro.IntVector(w))
     """
     Action label for each column of Gamma, in R column order.
 
@@ -86,16 +107,18 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
     """
     _init_r()
 
-    x_mat = np.asarray(x_mat)
+    x_mat = np.asarray(x_mat, dtype=np.float64)
     D_vec = np.asarray(D_vec)
-    y_vec = np.asarray(y_vec)
+    y_vec = np.asarray(y_vec, dtype=np.float64).reshape(-1)
     unique_actions = np.unique(D_vec)
     if len(unique_actions) < 2:
         raise ValueError(
             f"policy_tree needs >= 2 actions in training data, got {unique_actions}"
         )
 
-    X_impl = np.array([cust.x for cust in implement_customers])
+    X_impl = np.asarray([cust.x for cust in implement_customers], dtype=np.float64)
+    if X_impl.ndim == 1:
+        X_impl = X_impl.reshape(-1, 1)
     n_train, n_impl = x_mat.shape[0], X_impl.shape[0]
     print(
         f"[policy_tree] start: n_train={n_train}, n_impl={n_impl}, "
@@ -104,10 +127,16 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
     )
 
     with _localconverter(_default_converter + _numpy2ri.converter):
-        X_r = _ro.conversion.py2rpy(x_mat)
-        y_r = _ro.conversion.py2rpy(y_vec)
-        D_r = _ro.conversion.py2rpy(D_vec)
-        X_impl_r = _ro.conversion.py2rpy(X_impl)
+        X_r = _as_r_X(x_mat)
+        y_r = _as_r_Y(y_vec)
+        D_r = _as_r_W(D_vec)
+        X_impl_r = _as_r_X(X_impl)
+
+        print(
+            f"[policy_tree] R types: X={type(X_r).__name__}, "
+            f"Y={type(y_r).__name__} len={len(y_r)}, W={type(D_r).__name__}",
+            flush=True,
+        )
 
         print("[policy_tree] fitting multi_arm_causal_forest ...", flush=True)
         forest = _grf.multi_arm_causal_forest(X_r, y_r, D_r)
