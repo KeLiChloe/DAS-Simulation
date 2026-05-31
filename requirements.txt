@@ -2,7 +2,7 @@
 # Install: pip install -r requirements.txt
 #
 # Notes:
-# - Tested target: Python 3.10–3.12. Python 3.14 may lack wheels for some packages
+# - Recommended: Python 3.10–3.12. Python 3.14 may lack wheels for some packages
 #   (econml, rpy2, lightgbm, xgboost); use 3.11/3.12 if install fails.
 # - rpy2>=3.6 needs R>=4.4; for system R 4.3.x use rpy2>=3.5,<3.6
 # - policy_tree algorithm needs R packages (install in R, not pip):

@@ -1,14 +1,21 @@
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, FancyBboxPatch
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 import numpy as np
 import os
+
+try:
+    from plot_style import SAVEFIG_KW, style_binary_y_axis
+except ImportError:
+    from analysis.plot_style import SAVEFIG_KW, style_binary_y_axis
 
 # Markers for up to 8 actions
 _ACTION_MARKERS = ['o', 'x', '^', 's', 'D', 'v', 'P', '*']
 
 
-def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=None):
+def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=None,
+                      out_dir="figures", *, discrete_outcome=False, segment_colors=None,
+                      segment_cmap_name="Set1"):
     """
     Visualize segmentation with:
       - Color per segment
@@ -17,7 +24,7 @@ def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=
       - 3D  when X has ≥2 features : x_0 vs x_1 vs outcome
       - Decision boundaries for tree-based methods (DAST, MST)
     """
-    os.makedirs("figures", exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     labels  = np.ravel(labels).astype(int)
     y_vec   = np.ravel(y_vec)
@@ -119,7 +126,10 @@ def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=
 
         ax.set_xlabel("x_0");  ax.set_ylabel("outcome")
         ax.set_title(f"{algo.upper()}-Based Segmentation, M={M}")
-        ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        if discrete_outcome:
+            style_binary_y_axis(ax, y_vals=y_vec)
+        else:
+            ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
         ax.grid(True, alpha=0.4)
 
     # Deduplicated legend
@@ -132,7 +142,7 @@ def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=
         out_name = f"{algo}_segmentation_{M}.png"
     else:
         out_name = f"{algo}_segmentation_{M}_run{run_idx}.png"
-    plt.savefig(os.path.join("figures", out_name), dpi=300)
+    plt.savefig(os.path.join(out_dir, out_name), **SAVEFIG_KW)
     plt.close()
 
 
@@ -176,7 +186,9 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
                       segment_col='true_segment_id',
                       x_col='x_0', x2_col='x_1',
                       y_col='outcome', D_col='D_i',
-                      run_idx=None, out_dir="figures"):
+                      run_idx=None, out_dir="figures",
+                      *, discrete_outcome=False, segment_colors=None,
+                      segment_cmap_name="Set2"):
     """
     Plot ground-truth segmentation.
       - Color per true segment
@@ -191,6 +203,8 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
     """
     os.makedirs(out_dir, exist_ok=True)
 
+    use_3d = (x2_col is not None) and (x2_col in df.columns)
+
     segments       = sorted(df[segment_col].unique())
     unique_actions = sorted(df[D_col].unique())
 
@@ -198,8 +212,6 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
     seg_to_color    = {k: cmap(i) for i, k in enumerate(segments)}
     action_to_marker = {a: _ACTION_MARKERS[i % len(_ACTION_MARKERS)]
                         for i, a in enumerate(unique_actions)}
-
-    use_3d = (x2_col is not None) and (x2_col in df.columns)
 
     if use_3d:
         fig = plt.figure(figsize=(10, 8))
@@ -236,7 +248,10 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
 
         ax.set_xlabel(f"${x_col}$", fontsize=16)
         ax.set_ylabel(f"${y_col}$", fontsize=16)
-        ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        if discrete_outcome:
+            style_binary_y_axis(ax, y_vals=df[y_col].to_numpy())
+        else:
+            ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
         ax.grid(True, alpha=0.4)
 
     ax.set_title(title, fontsize=16)
@@ -250,7 +265,7 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
         fname = os.path.join(out_dir, "ground_truth_plot.png")
     else:
         fname = os.path.join(out_dir, f"ground_truth_plot_run{run_idx}.png")
-    plt.savefig(fname, dpi=300)
+    plt.savefig(fname, **SAVEFIG_KW)
     plt.close()
 
 
@@ -365,7 +380,7 @@ def plot_implementation_clustering(implement_customers, algo, title=None):
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f"figures/implementation_{algo}_clustering.png", dpi=300, bbox_inches='tight')
+    plt.savefig(f"figures/implementation_{algo}_clustering.png", **SAVEFIG_KW)
     plt.close()  # Close the figure to free memory
 
 
@@ -466,6 +481,6 @@ def plot_bernoulli_prob_histogram(customers, action_num, run_idx=0, out_dir="fig
     plt.tight_layout()
 
     fname = os.path.join(out_dir, f"bernoulli_prob_hist_run{run_idx}.png")
-    plt.savefig(fname, dpi=180, bbox_inches='tight')
+    plt.savefig(fname, **SAVEFIG_KW)
     plt.close()
     print(f"[plot] Bernoulli prob histogram saved -> {fname}")

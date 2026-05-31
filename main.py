@@ -108,6 +108,7 @@ def _run_one_sim(packed_args):
         args.partial_x,
         action_num=getattr(args, 'action_num', 2),
         X_noise_std_scale=args.X_noise_std_scale,
+        target_mahalanobis_sep=getattr(args, 'target_mahalanobis_sep', None),
         Y_noise_std_scale=getattr(args, 'Y_noise_std_scale', None),
         disallowed_ball_radius=getattr(args, 'disallowed_ball_radius', None),
         outcome_type=outcome_type,
@@ -117,6 +118,7 @@ def _run_one_sim(packed_args):
         plot_ground_truth(
             pop.to_dataframe(),
             run_idx=sim_idx,
+            discrete_outcome=(outcome_type == 'discrete'),
         )
         plot_bernoulli_prob_histogram(
             pop.implement_customers,
@@ -287,6 +289,7 @@ def _run_one_sim(packed_args):
             y_vec_tr = split10['y_vec_tr']
 
             meta_labels = act_id = None
+            plot_tree = None
 
             if is_meta:
                 if algo == "t_learner":
@@ -330,6 +333,7 @@ def _run_one_sim(packed_args):
                     pop, retrain_M, min_leaf_size=2, algo=algo,
                     use_hybrid_method=args.use_hybrid_method)
                 opt_tree.predict_segment(pop.implement_customers, seg_dict)
+                plot_tree = opt_tree
 
             elif algo == "dast_old":
                 d_old = 1 if retrain_M <= 2 else (2 if retrain_M <= 4 else (3 if retrain_M <= 6 else 4))
@@ -338,6 +342,7 @@ def _run_one_sim(packed_args):
                     include_interactions=include_interactions,
                     use_hybrid_method=args.use_hybrid_method)
                 opt_tree.predict_segment(pop.implement_customers, seg_dict)
+                plot_tree = opt_tree
 
             elif algo == "mst":
                 d_mst = 1 if retrain_M <= 2 else (2 if retrain_M <= 4 else (3 if retrain_M <= 8 else 4))
@@ -345,6 +350,7 @@ def _run_one_sim(packed_args):
                     pop, retrain_M, max_depth=d_mst, min_leaf_size=2,
                     epsilon=1e-2, algo=algo, include_interactions=include_interactions)
                 opt_tree.predict_segment(pop.implement_customers, seg_dict)
+                plot_tree = opt_tree
 
             elif algo == "kmeans-standard":
                 _, km_model = KMeans_segment_and_estimate(
@@ -377,9 +383,13 @@ def _run_one_sim(packed_args):
             else:
                 raise ValueError(f"Unknown algorithm: {algo}")
 
-            if args.plot and not is_meta and algo in ["kmeans-standard", "kmeans-da", "gmm-standard", "gmm-da"]:
+            if args.plot and not is_meta:
                 labels_plot = np.array([c.est_segment[algo].segment_id for c in pop.train_customers])
-                plot_segmentation(labels_plot, x_mat_tr, y_vec_tr, D_vec_tr, algo, M=retrain_M, run_idx=sim_idx)
+                plot_segmentation(
+                    labels_plot, x_mat_tr, y_vec_tr, D_vec_tr,
+                    algo, M=retrain_M, tree=plot_tree, run_idx=sim_idx,
+                    discrete_outcome=(outcome_type == 'discrete'),
+                )
 
             # ── Evaluate implementation outcome ───────────────────────────────
             impl_outcome = 0.0
@@ -413,10 +423,21 @@ def _run_one_sim(packed_args):
         + "\n".join(impl_lines)
     )
 
+    covariate_overlap = {
+        **getattr(pop, "covariate_distance_summary", {}),
+        "signal_covariate_noise": getattr(pop, "signal_covariate_noise", None),
+        "target_mahalanobis_sep": getattr(pop, "target_mahalanobis_sep", None),
+        "realized_median_nn_mahalanobis_sep": getattr(pop, "realized_median_nn_mahalanobis_sep", None),
+        "realized_min_nn_mahalanobis_sep": getattr(pop, "realized_min_nn_mahalanobis_sep", None),
+        "realized_median_nn_bayes_error": getattr(pop, "realized_median_nn_bayes_error", None),
+        "realized_min_nn_bayes_error": getattr(pop, "realized_min_nn_bayes_error", None),
+    }
+
     return {
         'seed':                seed,
         'sim_idx':             sim_idx,
         'oracle_profits_impl': oracle_profit_impl,
+        'covariate_overlap':   covariate_overlap,
         'algo_result_dict':    algo_result_dict,
         'summary':             summary,
     }
@@ -459,6 +480,7 @@ def main(args, param_range):
             "d":                       getattr(args, "d", None),
             "partial_x":               getattr(args, 'partial_x', None),
             "X_noise_std_scale":       getattr(args, 'X_noise_std_scale', None),
+            "target_mahalanobis_sep":  getattr(args, 'target_mahalanobis_sep', None),
             "disturb_covariate_noise": getattr(args, 'disturb_covariate_noise', None),
             "Y_noise_std_scale":       getattr(args, 'Y_noise_std_scale', None),
             "disallowed_ball_radius":  getattr(args, 'disallowed_ball_radius', None),
@@ -472,6 +494,7 @@ def main(args, param_range):
         },
         "seed": [],
         "oracle_profits_impl": [],
+        "covariate_overlap": [],
         **{algo: [] for algo in args.algorithms},
     }
 
@@ -511,6 +534,7 @@ def main(args, param_range):
 
             exp_result_dict['seed'].append(res['seed'])
             exp_result_dict['oracle_profits_impl'].append(res['oracle_profits_impl'])
+            exp_result_dict['covariate_overlap'].append(res['covariate_overlap'])
             for algo in args.algorithms:
                 if algo in res['algo_result_dict']:
                     exp_result_dict[algo].append(res['algo_result_dict'][algo])
@@ -549,6 +573,9 @@ if __name__ == "__main__":
     for r in SHARED_REQUIRED:
         if not _is_set(r):
             raise ValueError(f"'--{r}' is required for both outcome types.")
+
+    if _is_set('target_mahalanobis_sep') == _is_set('X_noise_std_scale'):
+        raise ValueError("Set exactly one of '--target_mahalanobis_sep' or legacy '--X_noise_std_scale'.")
 
     if outcome_type == 'continuous':
         for r in CONTINUOUS_ONLY:

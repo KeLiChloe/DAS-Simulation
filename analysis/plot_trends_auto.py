@@ -43,10 +43,12 @@ TITLE_MAP = {
     ("relative_comp",   "K"):     "DAS Improvement Ratio (Relative to Comparator) vs. Num. of Clusters",
     ("relative_comp",   "delta"):  "DAS Improvement Ratio (Relative to Comparator) vs. Interaction Strength",
     ("relative_comp",   "Xnoise"): "DAS Improvement Ratio (Relative to Comparator) vs. $X$ Noise Scale",
+    ("relative_comp",   "mahalanobis_sep"): "DAS Improvement Ratio (Relative to Comparator) vs. Mahalanobis Separation",
     ("relative_oracle", "d"):      "DAS Improvement Ratio (Relative to Oracle) vs. Dimension",
     ("relative_oracle", "K"):      "DAS Improvement Ratio (Relative to Oracle) vs. Num. of Clusters",
     ("relative_oracle", "delta"):  "DAS Improvement Ratio (Relative to Oracle) vs. Interaction Strength",
     ("relative_oracle", "Xnoise"): "DAS Improvement Ratio (Relative to Oracle) vs. $X$ Noise Scale",
+    ("relative_oracle", "mahalanobis_sep"): "DAS Improvement Ratio (Relative to Oracle) vs. Mahalanobis Separation",
     ("regret",          "d"):     "Regret Ratio vs. Dimension",
     ("regret",          "K"):     "Regret Ratio vs. Num. of Clusters",
     ("regret",          "delta"): "Regret Ratio vs. Interaction Strength",
@@ -81,6 +83,8 @@ def extract_experiment_param(filepath):
         raise ValueError(f"Cannot parse param_value from filename: {base}") from e
     if param_name.lower() == "xnoise":
         param_name = "Xnoise"
+    elif param_name.lower() in {"msep", "mahalanobissep"}:
+        param_name = "mahalanobis_sep"
     return param_name, param_value
 
 
@@ -98,6 +102,12 @@ def _decode_xnoise_filename_tag(tag_value):
     return v / 100.0
 
 
+def _format_numeric_tick(value, precision=3):
+    """Format ticks without hiding meaningful decimal places."""
+    text = f"{value:.{precision}f}".rstrip("0").rstrip(".")
+    return text if text else "0"
+
+
 def resolve_experiment_param(filepath, data):
     """
     Return (param_name, param_value) for plotting.
@@ -106,10 +116,17 @@ def resolve_experiment_param(filepath, data):
     to main.py), not the integer tag in the filename (100 -> 1.00, not 100).
     """
     param_name, param_value = extract_experiment_param(filepath)
+    exp_params = data.get("exp_params") or {}
+
+    if param_name == "mahalanobis_sep":
+        sep = exp_params.get("target_mahalanobis_sep")
+        if sep is not None:
+            return "mahalanobis_sep", float(sep)
+        return "mahalanobis_sep", _decode_xnoise_filename_tag(param_value)
+
     if param_name != "Xnoise":
         return param_name, param_value
 
-    exp_params = data.get("exp_params") or {}
     scale = exp_params.get("X_noise_std_scale")
     if scale is not None:
         return "Xnoise", float(scale)
@@ -400,14 +417,16 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
     ax.grid(False, axis="x")
 
     unique_x = sorted(df["param_value"].dropna().unique())
-    MAX_TICKS = 6
+    MAX_TICKS = 15
     if unique_x and np.all(np.isfinite(unique_x)):
         ticks = (unique_x if len(unique_x) <= MAX_TICKS
                  else [unique_x[i] for i in
                        np.linspace(0, len(unique_x) - 1, MAX_TICKS, dtype=int)])
         ax.set_xticks(ticks)
-        if param_name == "Xnoise":
-            ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2f"))
+        if param_name in {"Xnoise", "mahalanobis_sep"}:
+            ax.xaxis.set_major_formatter(
+                mpl.ticker.FuncFormatter(lambda x, pos: _format_numeric_tick(x, 3))
+            )
         else:
             ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2g"))
 

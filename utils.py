@@ -285,7 +285,12 @@ def parse_args():
     parser.add_argument("--K", type=int, help="Number of segments")
     parser.add_argument("--action_num", type=int, default=2, help="Number of actions (default: 2 for binary treatment)")
     parser.add_argument("--disallowed_ball_radius", type=float, help="Minimum distance between mean vectors as scale factor (e.g., 0.8 means min_dist = 0.8 * space_range/K^(1/d)). Default: 0.5")
-    parser.add_argument("--X_noise_std_scale", type=float, required=True, help="Scale factor for within-cluster covariate noise as a multiple of average distance between mean vectors")
+    parser.add_argument("--X_noise_std_scale", type=float, default=None,
+                        help="[legacy] Scale factor for within-cluster covariate noise as a multiple of average distance between mean vectors")
+    parser.add_argument("--target_mahalanobis_sep", type=float, default=None,
+                        help="Target nearest-neighbor Mahalanobis separation. "
+                             "When set, within-cluster covariate noise is chosen so that "
+                             "the median nearest-neighbor center distance is this many standard deviations.")
     parser.add_argument("--disturb_covariate_noise", type=float, help="Covariate noise across segments")
     parser.add_argument("--Y_noise_std_scale", type=float, help="Scale factor for outcome noise as a multiple of average |tau| (continuous only, required when outcome_type=continuous)")
     
@@ -319,5 +324,4 @@ def parse_args():
 
     args = parser.parse_args()
     return args
-
 

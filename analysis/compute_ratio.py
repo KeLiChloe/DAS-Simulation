@@ -14,6 +14,7 @@ def print_params(data):
         'K': data.get('exp_params').get('K'),
         'd': data.get('exp_params').get('d'),
         'X_noise_std_scale': data.get('exp_params').get('X_noise_std_scale'),
+        'target_mahalanobis_sep': data.get('exp_params').get('target_mahalanobis_sep'),
         'Y_noise_std_scale': data.get('exp_params').get('Y_noise_std_scale'),
         'alpha_param_range': data.get('exp_params').get('param_range').get('alpha'),
         'beta_param_range': data.get('exp_params').get('param_range').get('beta'),
@@ -469,7 +470,7 @@ def filter_ratios(improvement_ratios, apply_remove_extreme, apply_sigma_clip):
         filtered_ratios[comp] = ratios_np
     return filtered_ratios
 
-_IGNORE = {'dast', 'exp_params', 'seed', 'oracle_profits_impl'}
+_IGNORE = {'dast', 'exp_params', 'seed', 'oracle_profits_impl', 'covariate_overlap'}
 
 apply_remove_extreme = {
     "dast_old":        True,
@@ -545,4 +546,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

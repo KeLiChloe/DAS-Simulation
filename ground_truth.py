@@ -1,4 +1,5 @@
 import warnings
+import math
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -151,7 +152,7 @@ class Customer_implement:
 # ----------------------------------------
 
 class PopulationSimulator:
-    def __init__(self, N_total_pilot_customers, N_total_implement_customers, d, K, disturb_covariate_noise, param_range, DR_generation_method, partial_x, action_num, X_mean_vectors=None, X_noise_std_scale=None, Y_noise_std_scale=None, disallowed_ball_radius=None, outcome_type=None):
+    def __init__(self, N_total_pilot_customers, N_total_implement_customers, d, K, disturb_covariate_noise, param_range, DR_generation_method, partial_x, action_num, X_mean_vectors=None, X_noise_std_scale=None, target_mahalanobis_sep=None, Y_noise_std_scale=None, disallowed_ball_radius=None, outcome_type=None):
         self.N_total_pilot_customers = N_total_pilot_customers
         self.N_total_implement_customers = N_total_implement_customers
         self.d = d
@@ -169,12 +170,20 @@ class PopulationSimulator:
 
         self.true_segments = self._init_true_segments(X_mean_vectors)
         
-        # Compute signal_covariate_noise based on X_noise_std_scale (required parameter)
-        if X_noise_std_scale is None:
-            raise ValueError("X_noise_std_scale is required. Please provide a scale factor for within-cluster covariate noise.")
+        if X_noise_std_scale is None and target_mahalanobis_sep is None:
+            raise ValueError(
+                "Provide either target_mahalanobis_sep or legacy X_noise_std_scale "
+                "to set within-cluster covariate noise."
+            )
+
+        if X_noise_std_scale is not None and target_mahalanobis_sep is not None:
+            raise ValueError("Use only one of target_mahalanobis_sep or X_noise_std_scale.")
+
+        if target_mahalanobis_sep is not None and target_mahalanobis_sep <= 0:
+            raise ValueError(f"target_mahalanobis_sep must be positive, got {target_mahalanobis_sep}.")
         
         if self.K <= 1:
-            raise ValueError(f"Cannot use X_noise_std_scale with K={self.K}. Need at least 2 clusters to compute average distance.")
+            raise ValueError(f"Need at least 2 clusters to compute covariate noise, got K={self.K}.")
         
         mean_vectors_signal = np.array([seg.x_mean[:self.signal_d] for seg in self.true_segments])
         pairwise_distances = pdist(mean_vectors_signal, metric='euclidean')
@@ -182,9 +191,56 @@ class PopulationSimulator:
         if len(pairwise_distances) == 0:
             raise ValueError(f"No pairwise distances computed for K={self.K} clusters.")
         
-        avg_distance = np.mean(pairwise_distances)
-        self.signal_covariate_noise = X_noise_std_scale * avg_distance
-        print(f"Computed X_covariate_noise: {self.signal_covariate_noise:.4f} (scale={X_noise_std_scale}, avg_distance={avg_distance:.4f})")
+        avg_distance = float(np.mean(pairwise_distances))
+        median_distance = float(np.median(pairwise_distances))
+        dist_matrix = squareform(pairwise_distances)
+        np.fill_diagonal(dist_matrix, np.inf)
+        nearest_distances = dist_matrix.min(axis=1)
+        median_nn_distance = float(np.median(nearest_distances))
+        min_nn_distance = float(np.min(nearest_distances))
+
+        self.covariate_distance_summary = {
+            "pairwise_mean_distance": avg_distance,
+            "pairwise_median_distance": median_distance,
+            "nearest_neighbor_median_distance": median_nn_distance,
+            "nearest_neighbor_min_distance": min_nn_distance,
+        }
+
+        if target_mahalanobis_sep is not None:
+            self.signal_covariate_noise = median_nn_distance / target_mahalanobis_sep
+            self.target_mahalanobis_sep = target_mahalanobis_sep
+            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.signal_covariate_noise
+            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.signal_covariate_noise
+            self.realized_median_nn_bayes_error = 0.5 * math.erfc(
+                self.realized_median_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
+            )
+            self.realized_min_nn_bayes_error = 0.5 * math.erfc(
+                self.realized_min_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
+            )
+            print(
+                "Computed X_covariate_noise: "
+                f"{self.signal_covariate_noise:.4f} "
+                f"(target_mahalanobis_sep={target_mahalanobis_sep}, "
+                f"median_nn_distance={median_nn_distance:.4f}, "
+                f"min_nn_distance={min_nn_distance:.4f})"
+            )
+        else:
+            self.signal_covariate_noise = X_noise_std_scale * avg_distance
+            self.target_mahalanobis_sep = None
+            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.signal_covariate_noise
+            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.signal_covariate_noise
+            self.realized_median_nn_bayes_error = 0.5 * math.erfc(
+                self.realized_median_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
+            )
+            self.realized_min_nn_bayes_error = 0.5 * math.erfc(
+                self.realized_min_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
+            )
+            print(
+                "Computed X_covariate_noise: "
+                f"{self.signal_covariate_noise:.4f} "
+                f"(legacy scale={X_noise_std_scale}, avg_distance={avg_distance:.4f}, "
+                f"median_nn_mahalanobis={self.realized_median_nn_mahalanobis_sep:.4f})"
+            )
         
         
         
@@ -726,8 +782,6 @@ class PopulationSimulator:
             data.append(row)
 
         return pd.DataFrame(data)
-
-
 
 
 

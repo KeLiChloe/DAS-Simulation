@@ -208,9 +208,8 @@ def CLR_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat, D
         idx_m = np.where(clr_labels == m)[0]
         
         if len(idx_m) == 0:
-            # assign a random est_tau vector
-            est_tau = np.random.randn(pop.action_num)
-            est_action = np.argmax(est_tau)
+            est_action = int(np.random.randint(0, pop.action_num))
+            est_tau = 0.0
             est_seg = SegmentEstimate(est_tau, est_action, segment_id=m)
             pop.est_segments_list[f"{algo}"].append(est_seg)
             continue
