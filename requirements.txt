@@ -1,12 +1,14 @@
-# Tiger Simulation — Python dependencies
+# Python dependencies
 # Install: pip install -r requirements.txt
 #
 # Notes:
 # - Recommended: Python 3.10–3.12. Python 3.14 may lack wheels for some packages
 #   (econml, rpy2, lightgbm, xgboost); use 3.11/3.12 if install fails.
-# - rpy2>=3.6 needs R>=4.4; for system R 4.3.x use rpy2>=3.5,<3.6
+# - rpy2 needs a system R on PATH (Homebrew: brew install r). Prefer rpy2>=3.6 for R>=4.4.
 # - policy_tree algorithm needs R packages (install in R, not pip):
 #     install.packages(c("grf", "policytree"))
+# - If rpy2 warns about missing R.framework libRblas, ABI mode is fine:
+#     export RPY2_CFFI_MODE=ABI
 
 # ── Core simulation (main.py, ground_truth, algorithms) ─────────────────────
 numpy>=1.24
@@ -19,8 +21,7 @@ tqdm>=4.65
 econml>=0.14
 
 # Policy tree individual policy (policy_tree.py; optional — only needed when running policy_tree)
-# rpy2>=3.6 needs R>=4.4; for system R 4.3.x use rpy2>=3.5,<3.6
-rpy2>=3.5,<3.6
+rpy2>=3.5
 
 # Optional DR outcome models (--DR_generation_method lightgbm | xgboost)
 lightgbm>=4.0
@@ -34,3 +35,4 @@ seaborn>=0.13
 
 # ── Optional utilities ──────────────────────────────────────────────────────
 plotly>=5.0          # utils.plot_segment_sankey (Sankey diagrams)
+streamlit>=1.28      # analysis/streamlit_gt_demo.py (2D ground-truth explorer)

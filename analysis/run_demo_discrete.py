@@ -1,5 +1,5 @@
 """
-Illustrative discrete-outcome demo (Bernoulli outcomes, K-means vs DAST).
+Illustrative discrete-outcome demo (Bernoulli outcomes, k-means vs DAST).
 
 Run from project root:
     python analysis/run_demo_discrete.py
@@ -26,12 +26,14 @@ from ground_truth import PopulationSimulator
 from oracle import oracle_profit_on_customers
 from plot_demo_discrete import (
     algo_panel_title,
+    build_learned_segment_actions,
     plot_demo_combined,
     plot_demo_ground_truth,
     plot_demo_pilot,
     plot_demo_segmentation,
+    plot_kmeans_silhouette_elbow,
 )
-from plot_style import set_plot_style
+from plot_style import set_demo_plot_style
 from utils import assign_new_customers_to_segments
 
 # =============================================================================
@@ -43,14 +45,15 @@ DEMO_CONFIG: Dict[str, Any] = {
     "K": 3,
     "d": 1,
     "action_num": 2,
-    "n_per_segment": 100,
-    "plot_n_per_segment": 30,  # subsample pilot for figures only (None = plot all)
-    "n_implement": 1000,
+    "n_per_segment": 200,
+    "plot_n_per_segment": 50,  # subsample pilot for figures only (None = plot all)
+    "n_implement": 6000,
     "target_mahalanobis_sep": 3.0,  # within-cluster covariate noise (same rule as main.py mahal runs)
     "min_leaf_size": 5,
     "train_frac": 0.8,          # pilot train share for M sweep (dast val score)
     "train_frac_retrain": 1.0,  # pilot train share for final fit after M is picked
     "use_hybrid_method": True,
+    "action_method": "diff_in_means",  # diff_in_means | gamma | logistic
     "disturb_covariate_noise": 3.0,
     "partial_x": 1.0,
     "DR_generation_method": "lightgbm",
@@ -58,13 +61,17 @@ DEMO_CONFIG: Dict[str, Any] = {
     "algorithms": ("kmeans-standard", "dast"),
     "out_dir": "figures/demo",
     # Segment colors (demo only) — edit these two keys to change panel colors:
-    #   segment_colors_ground_truth → pilot panel (b); None uses matplotlib "Set2"
+    #   segment_colors_ground_truth → ground-truth panel (b); None uses matplotlib "Set2"
     #   segment_colors_estimated    → K-Means / DAS panels (c, d)
-    "segment_colors_ground_truth": None,  # None → matplotlib "Set2"
+    "segment_colors_ground_truth": [
+        "#C77DFF",  # bright purple (💜-like) for True Seg 1
+        "#FC8D62",  # Set2 coral (True Seg 2)
+        "#5CB85C",  # green (True Seg 3)
+    ],
     "segment_colors_estimated": [
-        "#E69F00",  # orange
-        "#CC79A7",  # reddish purple
-        "#0072B2",  # blue
+        "#0D7377",  # teal
+        "#E41A1C",  # red
+        "#1A44C0",  # Klein blue, slightly brighter
         "#009E73",  # bluish green
         "#F0E442",  # yellow
         
@@ -74,12 +81,12 @@ DEMO_CONFIG: Dict[str, Any] = {
     # DGP outcome parameters (discrete)
     "param_range": {
         "alpha": None,
-        "beta": (-0.2, 0.2),
+        "beta": (-0.05, 0.05),
         "tau": None,
-        "delta": (-0.1, 0.1),
+        "delta": (0.0, 0.0),
         "x_mean": (-100.0, 100.0),
-        "target_p": (0.05, 0.2),
-        "winner_p": (0.2, 0.5),
+        "target_p": (0.05, 0.12),
+        "winner_p": (0.55, 0.80),
     },
 }
 
@@ -100,6 +107,7 @@ class DiscreteDemo:
         self.train_frac = c["train_frac"]
         self.train_frac_retrain = c["train_frac_retrain"]
         self.use_hybrid_method = c["use_hybrid_method"]
+        self.action_method = c["action_method"]
         self.disturb_covariate_noise = c["disturb_covariate_noise"]
         self.partial_x = c["partial_x"]
         self.DR_generation_method = c["DR_generation_method"]
@@ -142,7 +150,6 @@ class DiscreteDemo:
             X_mean_vectors=self.x_mean_vectors,
             target_mahalanobis_sep=self.target_mahalanobis_sep,
             disallowed_ball_radius=self.disallowed_ball_radius,
-            outcome_type="discrete",
         )
         self.pop.split_pilot_customers_into_train_and_validate(train_frac=self.train_frac_retrain)
         self._arrays = self._extract_train_arrays()
@@ -166,12 +173,12 @@ class DiscreteDemo:
                 self._apply_split,
                 self._get_train_arrays,
                 include_interactions=False,
-                is_discrete=True,
                 seed=self.seed,
                 min_leaf_size=self.min_leaf_size,
                 use_hybrid_method=self.use_hybrid_method,
                 train_frac=self.train_frac,
                 train_frac_retrain=self.train_frac_retrain,
+                action_method=self.action_method,
             )
         self.evaluate_implementation_profits()
         return self.results
@@ -242,30 +249,57 @@ class DiscreteDemo:
         for algo in self.algorithms:
             res = self.results[algo]
             picked_M = res["picked_M"]
-            stem = self.out_dir / f"{algo}_segmentation_{picked_M}"
-            _, saved[algo] = plot_demo_segmentation(
-                res["labels"][plot_idx],
+            plot_labels = res["labels"][plot_idx]
+            plot_D = D_vec[plot_idx]
+            plot_y = y_vec[plot_idx]
+            # Legend actions: recomputed on plotted points (same rule as kmeans/dast fit).
+            seg_estimated_actions = build_learned_segment_actions(
+                plot_labels,
                 x_mat[plot_idx],
-                y_vec[plot_idx],
-                D_vec[plot_idx],
-                algo=algo,
-                M=picked_M,
-                out_path=str(stem),
-                tree=res.get("tree"),
-                model=res.get("model"),
-                segment_colors=self.segment_colors_estimated,
+                plot_D,
+                plot_y,
+                method=self.action_method,
+                gamma=self.pop.gamma_train[plot_idx] if self.pop.gamma_train is not None else None,
+                action_num=self.action_num,
+                include_interactions=False,
             )
+            stem = self.out_dir / f"{algo}_segmentation_{picked_M}"
+            if algo == "kmeans-standard" and res.get("m_selection") == "elbow_inertia_from_M1":
+                sweep = res["m_sweep"]
+                _, saved[algo] = plot_kmeans_silhouette_elbow(
+                    sweep["M"].to_numpy(),
+                    sweep["kmeans-standard_val"].to_numpy(),
+                    sweep["silhouette"].to_numpy(),
+                    elbow_M=int(picked_M),
+                    silhouette_M=int(res.get("silhouette_picked_M", picked_M)),
+                    out_path=str(stem),
+                )
+            else:
+                _, saved[algo] = plot_demo_segmentation(
+                    plot_labels,
+                    x_mat[plot_idx],
+                    plot_y,
+                    plot_D,
+                    algo=algo,
+                    M=picked_M,
+                    out_path=str(stem),
+                    tree=res.get("tree"),
+                    model=res.get("model"),
+                    segment_colors=self.segment_colors_estimated,
+                    seg_estimated_actions=seg_estimated_actions,
+                )
             stack_panels.append({
                 "kind": "segmentation",
-                "labels": res["labels"][plot_idx],
+                "labels": plot_labels,
                 "X": x_mat[plot_idx],
-                "y_vec": y_vec[plot_idx],
-                "D_vec": D_vec[plot_idx],
+                "y_vec": plot_y,
+                "D_vec": plot_D,
                 "algo": algo,
                 "tree": res.get("tree"),
                 "model": res.get("model"),
                 "title": algo_panel_title(algo, picked_M),
                 "segment_colors": self.segment_colors_estimated,
+                "seg_estimated_actions": seg_estimated_actions,
             })
 
         _, saved["combined"] = plot_demo_combined(
@@ -277,7 +311,7 @@ class DiscreteDemo:
         self.build()
         self.run_algorithms()
         paths = self.plot()
-        self._print_summary(paths)
+        self._print_summary()
         return self.pop, self.results, paths
 
     def _extract_train_arrays(self) -> Dict[str, np.ndarray]:
@@ -318,7 +352,37 @@ class DiscreteDemo:
         idx = self._indices_per_true_segment(df["true_segment_id"].to_numpy())
         return df.iloc[idx].reset_index(drop=True)
 
-    def _print_summary(self, paths: Dict[str, Path]) -> None:
+    def _print_learned_segment_stats(self, algo: str, res: Dict[str, Any]) -> None:
+        """Per-segment n_0, n_1, y_0, y_1 (means) on final train fit — for manual est_action checks."""
+        assert self.pop is not None and self._arrays is not None
+        labels = np.ravel(res["labels"]).astype(int)
+        D_vec = self._arrays["D_vec"]
+        y_vec = self._arrays["y_vec"]
+        title = {
+            "kmeans-standard": "k-means",
+            "dast": "DAS",
+        }.get(algo, algo)
+        print(f"    {title} segment stats (final train fit; y_a = mean(Y|D=a)):")
+        print(f"      {'seg':>3}  {'n_0':>4}  {'n_1':>4}  {'y_0':>8}  {'y_1':>8}  "
+              f"{'sum_y0':>6}  {'sum_y1':>6}  {'est_tau':>8}  {'a_hat':>4}")
+        for seg in self.pop.est_segments_list[algo]:
+            m = int(seg.segment_id)
+            idx = labels == m
+            D_m = D_vec[idx]
+            y_m = y_vec[idx]
+            n0 = int(np.sum(D_m == 0))
+            n1 = int(np.sum(D_m == 1))
+            y0 = float(y_m[D_m == 0].mean()) if n0 else float("nan")
+            y1 = float(y_m[D_m == 1].mean()) if n1 else float("nan")
+            s0 = int(y_m[D_m == 0].sum()) if n0 else 0
+            s1 = int(y_m[D_m == 1].sum()) if n1 else 0
+            print(
+                f"      {m:3d}  {n0:4d}  {n1:4d}  {y0:8.4f}  {y1:8.4f}  "
+                f"{s0:6d}  {s1:6d}  {seg.est_tau:+8.4f}  {seg.est_action:4d}"
+            )
+        print("      (check: est_tau ≈ y_1 - y_0; a_hat = 1[y_1 - y_0 >= 0] when n_0,n_1 > 0)")
+
+    def _print_summary(self) -> None:
         assert self.pop is not None
         print("\n=== Discrete Demo Summary ===")
         print(f"  seed={self.seed}, K={self.K}, M_range={m_range_for_k(self.K)}, d={self.d}")
@@ -331,24 +395,26 @@ class DiscreteDemo:
         for algo, res in self.results.items():
             score = res["score"]
             score_str = f"{score:.4f}" if score is not None else "n/a"
+            sel = res.get("m_selection")
+            sel_str = f", m_selection={sel}" if sel else ""
             print(f"  {algo}: picked_M={res['picked_M']}, score={score_str}, "
-                  f"sweep_frac={res['train_frac_sweep']}")
+                  f"sweep_frac={res['train_frac_sweep']}{sel_str}")
             print(f"    M sweep:\n{res['m_sweep'].to_string(index=False)}")
+            if algo in ("kmeans-standard", "dast"):
+                self._print_learned_segment_stats(algo, res)
         if self.oracle_profits is not None:
-            print(f"\n  oracle profit={self.oracle_profits:.4f}")
+            print("\n=== Share of optimal policy ===")
+            print(f"  optimal profit={self.oracle_profits:.4f}")
             for algo, res in self.results.items():
                 p = res.get("implementation_profits")
                 if p is not None:
                     rel = 100.0 * p / self.oracle_profits if self.oracle_profits > 0 else float("nan")
-                    print(f"  {algo}: implementation_profit={p:.4f} ({rel:.1f}% of oracle)")
-        print("\nFigures saved (PDF for LaTeX; PNG alongside):")
-        for name, path in paths.items():
-            print(f"  - {name}: {path}")
-            png = path.with_suffix(".png")
-            if png.exists():
-                print(f"      png: {png}")
+                    print(
+                        f"  {algo}: profit={p:.4f} "
+                        f"→ {rel:.1f}% of optimal policy"
+                    )
 
 
 if __name__ == "__main__":
-    set_plot_style()
+    set_demo_plot_style()
     DiscreteDemo(DEMO_CONFIG).run()

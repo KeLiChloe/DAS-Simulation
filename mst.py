@@ -8,14 +8,10 @@ from sklearn.linear_model import LogisticRegression
 import random
 
 
-def _node_residual(Z_m, y_m, D_m, action_num, is_discrete):
+def _node_residual(Z_m, y_m, D_m, action_num):
     """
-    Compute node impurity from pre-sliced arrays (no sklearn LinearRegression,
-    no design-matrix rebuild).  Called O(d × B) times per tree node.
-
-    Continuous : RSS via numpy least-squares  (much faster than sklearn OLS)
-    Discrete   : negative log-likelihood of logistic regression
-                 (max_iter=100 instead of 2000 – sufficient for split ranking)
+    Compute Bernoulli NLL impurity from pre-sliced arrays.
+    Called O(d × B) times per tree node.
     """
     # Strict check: every action must be present
     if action_num is not None:
@@ -23,30 +19,21 @@ def _node_residual(Z_m, y_m, D_m, action_num, is_discrete):
             if not np.any(D_m == a):
                 return np.inf
 
-    if is_discrete:
-        y_int = y_m.astype(int)
-        if len(np.unique(y_int)) == 1:
-            return 0.0
-        model = LogisticRegression(
-            fit_intercept=False, solver='lbfgs',
-            max_iter=100, tol=1e-3, C=1e6,
-        )
-        try:
-            model.fit(Z_m, y_int)
-            proba   = model.predict_proba(Z_m)
-            p_true  = np.clip(proba[np.arange(len(y_int)), y_int], 1e-9, 1 - 1e-9)
-            return  -np.sum(np.log(p_true))
-        except Exception:
-            p_mean = np.clip(np.mean(y_int), 1e-9, 1 - 1e-9)
-            return -np.sum(y_int * np.log(p_mean) + (1 - y_int) * np.log(1 - p_mean))
-    else:
-        # Fast OLS RSS: numpy lstsq, no sklearn overhead
-        _, rss_arr, _, _ = np.linalg.lstsq(Z_m, y_m, rcond=None)
-        if len(rss_arr) > 0:
-            return float(rss_arr[0])
-        beta  = np.linalg.lstsq(Z_m, y_m, rcond=None)[0]
-        resid = y_m - Z_m @ beta
-        return float(np.dot(resid, resid))
+    y_int = y_m.astype(int)
+    if len(np.unique(y_int)) == 1:
+        return 0.0
+    model = LogisticRegression(
+        fit_intercept=False, solver='lbfgs',
+        max_iter=100, tol=1e-3, C=1e6,
+    )
+    try:
+        model.fit(Z_m, y_int)
+        proba   = model.predict_proba(Z_m)
+        p_true  = np.clip(proba[np.arange(len(y_int)), y_int], 1e-9, 1 - 1e-9)
+        return  -np.sum(np.log(p_true))
+    except Exception:
+        p_mean = np.clip(np.mean(y_int), 1e-9, 1 - 1e-9)
+        return -np.sum(y_int * np.log(p_mean) + (1 - y_int) * np.log(1 - p_mean))
 
 class MSTNode:
     def __init__(self, indices, depth=0):
@@ -67,7 +54,7 @@ class MSTNode:
         self.is_leaf = True
 
 class MSTree:
-    def __init__(self, x, y, D, Z, candidate_thresholds, min_leaf_size, epsilon, max_depth, algo, action_num, is_discrete=False):
+    def __init__(self, x, y, D, Z, candidate_thresholds, min_leaf_size, epsilon, max_depth, algo, action_num, action_method: str, gamma=None, include_interactions: bool = False):
         self.x  = x
         self.y  = y.ravel()          # keep as 1-D for fast indexing
         self.D  = D.ravel().astype(int)
@@ -82,13 +69,15 @@ class MSTree:
 
         self.algo       = algo
         self.action_num = action_num
-        self.is_discrete = is_discrete
+        self.action_method = action_method
+        self.gamma = gamma
+        self.include_interactions = include_interactions
 
     def _eval(self, indices):
         """Evaluate impurity for a node using pre-sliced Z / y / D."""
         return _node_residual(
             self.Z[indices], self.y[indices], self.D[indices],
-            self.action_num, self.is_discrete,
+            self.action_num,
         )
 
     def build(self, include_interactions):
@@ -267,10 +256,14 @@ class MSTree:
         return gain
 
     def _fit_segment_and_assign(self, customers, indices, data, segment_id, include_interactions):
-        X_seg = data['X'][indices]
-        D_seg = data['D'][indices]
-        Y_seg = data['Y'][indices]
-        est_tau, est_action = estimate_segment_parameters(X_seg, D_seg, Y_seg)
+        est_tau, est_action = estimate_segment_parameters(
+            data['X'], data['D'], data['Y'],
+            method=self.action_method,
+            gamma=self.gamma,
+            indices=indices,
+            action_num=self.action_num,
+            include_interactions=include_interactions,
+        )
         segment = SegmentEstimate(est_tau, est_action, segment_id)
         for i in indices:
             customers[i].est_segment[f"{self.algo}"] = segment
@@ -278,7 +271,7 @@ class MSTree:
 
 
 
-def MST_segment_and_estimate(pop: PopulationSimulator, n_segments, max_depth, min_leaf_size, epsilon, algo, include_interactions, threshold_grid=None):
+def MST_segment_and_estimate(pop: PopulationSimulator, n_segments, max_depth, min_leaf_size, epsilon, algo, include_interactions, action_method: str, threshold_grid=None):
     # Prepare training data
     X = np.array([cust.x   for cust in pop.train_customers])
     D = np.array([cust.D_i for cust in pop.train_customers])
@@ -286,7 +279,8 @@ def MST_segment_and_estimate(pop: PopulationSimulator, n_segments, max_depth, mi
     data_train = {"X": X, "D": D.reshape(-1, 1), "Y": Y.reshape(-1, 1)}
 
     # Precompute design matrix ONCE — reused for every candidate split
-    Z = build_design_matrix(X, D, include_interactions)
+    # Multi-arm D is one-hot (action 0 reference), not a numeric scalar.
+    Z = build_design_matrix(X, D, include_interactions, action_num=pop.action_num)
 
     # Generate candidate thresholds using quantile-based binning (B bins)
     B = 50
@@ -312,7 +306,9 @@ def MST_segment_and_estimate(pop: PopulationSimulator, n_segments, max_depth, mi
         max_depth=max_depth,
         algo=algo,
         action_num=pop.action_num,
-        is_discrete=(pop.outcome_type == 'discrete'),
+        action_method=action_method,
+        gamma=pop.gamma_train,
+        include_interactions=include_interactions,
     )
     tree.build(include_interactions)
     

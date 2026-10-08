@@ -17,6 +17,7 @@ from plot_style import (
     DEMO_DISCRETE_XLABEL,
     DEMO_DISCRETE_YLABEL,
     DEMO_FIGSIZE_STACK,
+    DEMO_FIGSIZE_STACK_2x3,
     DEMO_SCATTER_ALPHA,
     DEMO_SCATTER_SIZE,
     LABEL_MAP,
@@ -27,6 +28,7 @@ from plot_style import (
     discrete_legend_axes_y_floor,
     layout_demo_2d,
     layout_demo_stack,
+    layout_demo_stack_2x3,
     style_binary_y_axis,
     style_demo_2d_axes,
 )
@@ -39,6 +41,8 @@ _SPLIT_LINE_LW = 1.2
 
 # Manual legend geometry (axes fraction, tuned for 2×2 demo panels)
 _LEGEND_PAD = 0.014
+_LEGEND_ROW_H_MIN = 0.052
+_LEGEND_ROW_H_MAX = 0.080
 _LEGEND_SWATCH_W = 0.024
 _LEGEND_SWATCH_H = 0.026
 _LEGEND_SWATCH_GAP = 0.010
@@ -81,6 +85,26 @@ def _learned_seg_label(seg_id) -> str:
     return f"Learned Seg {_seg_display_num(seg_id)}"
 
 
+def _est_action_math(display_k: int, est_act) -> str:
+    """Mathtext for segment-wise estimated action, e.g. $\\widehat{a}_1=1$."""
+    return rf"$\widehat{{a}}_{{{int(display_k)}}}={int(est_act)}$"
+
+
+def _kmeans_seg_ids_by_centroid_x(model, feature_idx: int = 0) -> list[int]:
+    """Cluster ids ordered by increasing centroid coordinate (left to right on x-axis)."""
+    centers = np.asarray(model.cluster_centers_)
+    if centers.ndim == 1:
+        centers = centers.reshape(-1, 1)
+    order = np.argsort(centers[:, feature_idx])
+    return [int(i) for i in order]
+
+
+def _kmeans_legend_seg_order(model, labels) -> list[int]:
+    """Left-to-right cluster ids, keeping only labels present in the plotted sample."""
+    present = set(np.ravel(labels).astype(int))
+    return [s for s in _kmeans_seg_ids_by_centroid_x(model) if s in present]
+
+
 def _row_width_swatch_label(ax, label: str, fs: float) -> float:
     return (
         _LEGEND_PAD + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP
@@ -96,6 +120,17 @@ def _row_width_gt(ax, seg_id, opt_act, fs: float) -> float:
         _LEGEND_PAD + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP
         + _axes_text_width(ax, seg_text, fs) + _LEGEND_TEXT_GAP
         + _axes_text_width(ax, opt_text, fs_opt) + _LEGEND_TEXT_GAP
+        + _LEGEND_MARKER_W + _LEGEND_PAD + _LEGEND_WIDTH_BUFFER
+    )
+
+
+def _row_width_learned_seg(ax, seg_text: str, display_k: int, est_act, fs: float) -> float:
+    fs_est = fs - 0.35
+    est_text = _est_action_math(display_k, est_act)
+    return (
+        _LEGEND_PAD + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP
+        + _axes_text_width(ax, seg_text, fs) + _LEGEND_TEXT_GAP
+        + _axes_text_width(ax, est_text, fs_est) + _LEGEND_TEXT_GAP
         + _LEGEND_MARKER_W + _LEGEND_PAD + _LEGEND_WIDTH_BUFFER
     )
 
@@ -136,6 +171,69 @@ def save_demo_figure(fig, out_path: str | Path) -> tuple[Path, Path]:
     return png_path, pdf_path
 
 
+def plot_kmeans_silhouette_elbow(
+    Ms,
+    inertias,
+    silhouettes,
+    *,
+    elbow_M: int,
+    silhouette_M: int,
+    out_path: str,
+) -> tuple[Path, Path]:
+    """Side-by-side $k$-means model selection: silhouette (left) and elbow (right)."""
+    Ms = np.asarray(Ms, dtype=int)
+    inertias = np.asarray(inertias, dtype=float)
+    silhouettes = np.asarray(silhouettes, dtype=float)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+
+    fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.2, 3.6))
+
+    # Left: silhouette (M >= 2)
+    sil_ok = np.isfinite(silhouettes)
+    Ms_s = Ms[sil_ok]
+    sil_s = silhouettes[sil_ok]
+    ax_l.plot(Ms_s, sil_s, color="0.25", linewidth=1.8, marker="o", markersize=6, zorder=3)
+    if len(Ms_s):
+        pick_l = Ms_s == int(silhouette_M)
+        if np.any(pick_l):
+            ax_l.scatter(
+                Ms_s[pick_l], sil_s[pick_l],
+                s=90, color="#E41A1C", zorder=4,
+                label=rf"silhouette $M={int(silhouette_M)}$",
+            )
+    ax_l.set_xlabel(r"Number of clusters ($M$)")
+    ax_l.set_ylabel("Silhouette score")
+    ax_l.set_xticks(list(Ms_s) if len(Ms_s) else list(Ms))
+    ax_l.legend(frameon=True, fancybox=False, framealpha=0.98, edgecolor="0.72")
+    style_demo_2d_axes(ax_l)
+    ax_l.set_title("(a) Silhouette", fontsize=plt.rcParams.get("axes.titlesize", 11))
+
+    # Right: elbow / inertia (M from 1)
+    ax_r.plot(Ms, inertias, color="0.25", linewidth=1.8, marker="o", markersize=6, zorder=3)
+    ax_r.plot(
+        [Ms[0], Ms[-1]], [inertias[0], inertias[-1]],
+        color="0.65", linestyle="--", linewidth=1.1, zorder=2, label="chord",
+    )
+    pick_r = Ms == int(elbow_M)
+    if np.any(pick_r):
+        ax_r.scatter(
+            Ms[pick_r], inertias[pick_r],
+            s=90, color="#E41A1C", zorder=4,
+            label=rf"elbow $M={int(elbow_M)}$",
+        )
+    ax_r.set_xlabel(r"Number of clusters ($M$)")
+    ax_r.set_ylabel(r"Inertia (WCSS)")
+    ax_r.set_xticks(list(Ms))
+    ax_r.legend(frameon=True, fancybox=False, framealpha=0.98, edgecolor="0.72")
+    style_demo_2d_axes(ax_r)
+    ax_r.set_title("(b) Elbow", fontsize=plt.rcParams.get("axes.titlesize", 11))
+
+    fig.tight_layout()
+    paths = save_demo_figure(fig, out_path)
+    plt.close(fig)
+    return paths
+
+
 def _extract_splits_all_features(tree):
     """Return list of (feature_idx, threshold, bbox) for every internal split."""
     splits = []
@@ -163,6 +261,8 @@ def _extract_splits_all_features(tree):
 def algo_panel_title(algo: str, M: int) -> str:
     if algo == "dast":
         name = "DAS"
+    elif algo in ("kmeans-standard", "kmeans"):
+        name = r"$k$-means"
     else:
         name = LABEL_MAP.get(algo, algo.replace("-", " ").title())
     return f"{name}, $M={M}$"
@@ -209,7 +309,7 @@ def _draw_discrete_splits(ax, tree, x0, y_vec):
     if tree is None:
         return None
     x0_dmin, x0_dmax = float(x0.min()), float(x0.max())
-    # Target range: (y_min - 1) to 1.5  — matches style_binary_y_axis limits
+    # Target range: (y_min - 0.5) to 1.5  — matches style_binary_y_axis limits
     y_lo_draw, _ = discrete_y_display_limits(float(y_vec.min()), float(y_vec.max()))
     y_hi_draw = 1.5
     split_handle = None
@@ -244,23 +344,40 @@ def _legend_marker_axes(ax, x_ax, y_ax, act, color, action_to_marker, *, ms=None
 
 def _legend_layout(ax, n_rows: int):
     fs = demo_legend_style(ncol=1)["fontsize"]
-    y_top = 0.97
+    y_top = 1.02
     y_floor = discrete_legend_axes_y_floor(ax)
-    row_h = min(0.068, max(0.044, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)))
+    row_h = min(
+        _LEGEND_ROW_H_MAX,
+        max(_LEGEND_ROW_H_MIN, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
+    )
     box_h = n_rows * row_h + 2 * _LEGEND_PAD
     y_bot = max(y_top - box_h, y_floor)
     return fs, y_top, y_bot, row_h
 
 
-def _draw_est_seg_legend_row(ax, x_left: float, y: float, seg_id, color, fs: float) -> None:
-    label = _learned_seg_label(seg_id)
+def _draw_learned_seg_legend_row(
+    ax, x_left: float, y: float, seg_id, color, est_act, action_to_marker, fs: float,
+    *, seg_text: str | None = None, display_k: int | None = None,
+) -> None:
+    if seg_text is None:
+        seg_text = _learned_seg_label(seg_id)
+    k = _seg_display_num(seg_id) if display_k is None else int(display_k)
+    est_text = _est_action_math(k, est_act)
+    fs_est = fs - 0.35
     x = x_left + _LEGEND_PAD
     _draw_legend_rect(ax, x, y, color)
+    x_seg = x + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP
     ax.text(
-        x + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP, y, label,
-        transform=ax.transAxes, fontsize=fs, color="black",
+        x_seg, y, seg_text, transform=ax.transAxes, fontsize=fs, color="black",
         va="center", ha="left", zorder=11, clip_on=False,
     )
+    x_est = x_seg + _axes_text_width(ax, seg_text, fs) + _LEGEND_TEXT_GAP
+    ax.text(
+        x_est, y, est_text, transform=ax.transAxes,
+        fontsize=fs_est, color="black", va="center", ha="left", zorder=11, clip_on=False,
+    )
+    x_mk = x_est + _axes_text_width(ax, est_text, fs_est) + _LEGEND_TEXT_GAP
+    _legend_marker_axes(ax, x_mk, y, est_act, "black", action_to_marker)
 
 
 def _draw_gt_legend_row(
@@ -299,28 +416,88 @@ def _draw_split_legend_row(ax, x_left: float, y: float, handle, label: str, fs: 
     )
 
 
+def build_learned_segment_actions(
+    labels,
+    X,
+    D_vec,
+    y_vec,
+    *,
+    method: str = "diff_in_means",
+    gamma=None,
+    action_num: int | None = None,
+    include_interactions: bool = False,
+) -> dict[int, int]:
+    """Per learned segment: same action rule as fitted segmentation (see action_estimation.py)."""
+    from utils import estimate_segment_parameters
+
+    labels = np.ravel(labels).astype(int)
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    D_vec = np.ravel(D_vec).astype(int)
+    y_vec = np.ravel(y_vec)
+    out: dict[int, int] = {}
+    for seg in sorted(np.unique(labels)):
+        idx = np.where(labels == seg)[0]
+        if len(idx) == 0:
+            out[int(seg)] = 0
+            continue
+        _, act = estimate_segment_parameters(
+            X, D_vec, y_vec,
+            method=method,
+            gamma=gamma,
+            indices=idx,
+            action_num=action_num,
+            include_interactions=include_interactions,
+        )
+        out[int(seg)] = 0 if act == 404 else int(act)
+    return out
+
+
 def _build_segment_legend(
-    ax, seg_ids, seg_to_color, _unique_actions, _action_to_marker,
+    ax, seg_ids, seg_to_color, _unique_actions, action_to_marker,
     extra_handles=None, *, show_treatments=True,
+    seg_estimated_actions: dict | None = None,
+    seg_legend_labels: dict[int, str] | None = None,
     legend_x_right: float | None = None,
     legend_y_top: float | None = None,
     width_trim: float = 0.0,
+    y_floor_pad: float | None = None,
+    row_h_min: float | None = None,
+    row_h_max: float | None = None,
 ):
-    """Segment legend: colored rectangle + black 'Seg k'; optional split row."""
+    """Learned-segment legend: swatch + Learned Seg k + estimated action + marker; optional split."""
     if show_treatments:
         raise NotImplementedError("Treatment rows are only shown in the pilot panel.")
     n_segs = len(seg_ids)
     n_rows = n_segs + (1 if extra_handles else 0)
     fs = demo_legend_style(ncol=1)["fontsize"]
-    y_top = 0.97 if legend_y_top is None else legend_y_top
-    y_floor = discrete_legend_axes_y_floor(ax)
-    row_h = min(0.068, max(0.044, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)))
+    y_top = 1.02 if legend_y_top is None else legend_y_top
+    floor_kw = {} if y_floor_pad is None else {"pad": y_floor_pad}
+    y_floor = discrete_legend_axes_y_floor(ax, **floor_kw)
+    rmin = _LEGEND_ROW_H_MIN if row_h_min is None else row_h_min
+    rmax = _LEGEND_ROW_H_MAX if row_h_max is None else row_h_max
+    row_h = min(
+        rmax,
+        max(rmin, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
+    )
     box_h = n_rows * row_h + 2 * _LEGEND_PAD
     y_bot = max(y_top - box_h, y_floor)
 
-    row_widths = [
-        _row_width_swatch_label(ax, _learned_seg_label(seg), fs) for seg in seg_ids
-    ]
+    def _seg_label(seg) -> str:
+        if seg_legend_labels is not None and seg in seg_legend_labels:
+            return seg_legend_labels[seg]
+        return _learned_seg_label(seg)
+
+    if seg_estimated_actions is None:
+        row_widths = [_row_width_swatch_label(ax, _seg_label(seg), fs) for seg in seg_ids]
+    else:
+        row_widths = [
+            _row_width_learned_seg(
+                ax, _seg_label(seg), i + 1, seg_estimated_actions.get(seg, 0), fs,
+            )
+            for i, seg in enumerate(seg_ids)
+        ]
     if extra_handles:
         split_label = extra_handles[0].get_label()
         row_widths.append(_row_width_split(ax, split_label, fs - 0.35))
@@ -331,7 +508,21 @@ def _build_segment_legend(
 
     for i, seg in enumerate(seg_ids):
         y = y_top - _LEGEND_PAD - (i + 0.5) * row_h
-        _draw_est_seg_legend_row(ax, x_left, y, seg, seg_to_color[seg], fs)
+        label = _seg_label(seg)
+        if seg_estimated_actions is None:
+            x = x_left + _LEGEND_PAD
+            _draw_legend_rect(ax, x, y, seg_to_color[seg])
+            ax.text(
+                x + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP, y, label,
+                transform=ax.transAxes, fontsize=fs, color="black",
+                va="center", ha="left", zorder=11, clip_on=False,
+            )
+        else:
+            _draw_learned_seg_legend_row(
+                ax, x_left, y, seg, seg_to_color[seg],
+                seg_estimated_actions.get(seg, 0), action_to_marker, fs,
+                seg_text=label, display_k=i + 1,
+            )
 
     if extra_handles:
         h = extra_handles[0]
@@ -406,20 +597,27 @@ def _draw_discrete_pilot_panel(
 
     # Treatment-only legend (simple, tight, top-right)
     fs = demo_legend_style()["fontsize"]
+    fs_leg = fs - 0.35
     y_floor = discrete_legend_axes_y_floor(ax)
     pad = _LEGEND_PAD
-    row_h = min(0.068, max(0.044, (0.97 - y_floor - 2 * pad) / max(len(unique_actions), 1)))
-    dtext_w = _axes_text_width(ax, "$D=0$", fs - 0.35)
+    row_h = min(
+        _LEGEND_ROW_H_MAX,
+        max(_LEGEND_ROW_H_MIN, (0.97 - y_floor - 2 * pad) / max(len(unique_actions), 1)),
+    )
+    label_for = lambda a: f"treatment $D = {a}$"
+    dtext_w = max(_axes_text_width(ax, label_for(a), fs_leg) for a in unique_actions)
     gap_txt_mk = 0.012
     marker_w = _LEGEND_MARKER_W
     pad_sides = pad
     box_w = pad_sides + dtext_w + gap_txt_mk + marker_w + pad_sides
-    box_w = min(box_w, 0.55)
+    box_w = min(box_w, 0.72)
     n_rows = len(unique_actions)
     box_h = n_rows * row_h + 2 * pad
-    y_top = 0.97
+    y_top = 1.02
     y_bot = max(y_top - box_h, y_floor)
     x_left = 1.0 - box_w - 0.01
+    # Markers sit optically low vs text; nudge up for baseline alignment.
+    marker_y_nudge = 0.008
 
     ax.add_patch(FancyBboxPatch(
         (x_left, y_bot), box_w, y_top - y_bot,
@@ -433,11 +631,13 @@ def _draw_discrete_pilot_panel(
         x_txt = x_cur
         x_mk  = x_txt + dtext_w + gap_txt_mk
         ax.text(
-            x_txt, y, f"$D={act}$",
-            transform=ax.transAxes, fontsize=fs - 0.35, color="0.20",
+            x_txt, y, label_for(act),
+            transform=ax.transAxes, fontsize=fs_leg, color="0.20",
             va="center", ha="left", zorder=11, clip_on=False,
         )
-        _legend_marker_axes(ax, x_mk, y, act, "black", action_to_marker)
+        _legend_marker_axes(
+            ax, x_mk, y + marker_y_nudge, act, "black", action_to_marker,
+        )
 
 
 def _draw_discrete_ground_truth_panel(
@@ -489,20 +689,29 @@ def _draw_kmeans_splits(ax, x0, y_vec, model):
 def _draw_discrete_segmentation_panel(
     ax, labels, X, y_vec, D_vec, *, title="", tree=None, algo=None, model=None,
     segment_colors=None, segment_cmap_name: str = "tab10",
+    seg_estimated_actions=None,
 ):
     labels = np.ravel(labels).astype(int)
     D_vec = np.ravel(D_vec).astype(int)
     y_vec = np.ravel(y_vec)
     x0 = X[:, 0] if X.ndim == 2 else np.ravel(X)
 
-    seg_ids = sorted(np.unique(labels))
     unique_actions = sorted(np.unique(D_vec))
+    seg_legend_labels = None
+    if algo in ("kmeans-standard", "kmeans") and model is not None:
+        seg_ids = _kmeans_legend_seg_order(model, labels)
+        seg_legend_labels = {
+            cid: f"Learned Seg {rank}"
+            for rank, cid in enumerate(seg_ids, start=1)
+        }
+    else:
+        seg_ids = sorted(np.unique(labels))
     seg_to_color = _label_color_map(seg_ids, segment_colors, segment_cmap_name)
     action_to_marker = _action_marker_map(unique_actions)
 
     _draw_discrete_scatter(ax, x0, y_vec, labels, D_vec, seg_to_color, action_to_marker)
     extra = []
-    if algo in ("dast", "mst") and tree is not None:
+    if algo == "dast" and tree is not None:
         split_h = _draw_discrete_splits(ax, tree, x0, y_vec)
         if split_h is not None:
             extra = [split_h]
@@ -513,30 +722,54 @@ def _draw_discrete_segmentation_panel(
     _style_discrete_2d_panel(ax, y_vec, show_xlabel=False)
     legend_kw: dict = {}
     if algo == "dast":
-        legend_kw = dict(legend_x_right=0.003, legend_y_top=0.99, width_trim=0.016)
+        # Panel (d): multiple segs + split → more vertical room / row height
+        legend_kw = dict(
+            legend_x_right=0.003,
+            legend_y_top=1.04,
+            width_trim=0.016,
+            y_floor_pad=0.015,
+            row_h_min=0.068,
+            row_h_max=0.090,
+        )
     _build_segment_legend(
         ax, seg_ids, seg_to_color, unique_actions, action_to_marker,
         extra_handles=extra or None, show_treatments=False,
+        seg_estimated_actions=seg_estimated_actions,
+        seg_legend_labels=seg_legend_labels,
         **legend_kw,
     )
 
 
 def plot_demo_combined(panels, out_path: str) -> tuple[Path, Path]:
-    """Save a 2×2 figure.
+    """Save a combined figure.
 
-    panels must have exactly 4 entries in order:
-      [0] pilot, [1] ground_truth, [2] kmeans segmentation, [3] dast segmentation
-    Row 0: pilot | ground_truth
-    Row 1: kmeans | dast
+    Expected panel order:
+      [0] pilot, [1] ground_truth, then one segmentation panel per algorithm
+      (e.g. kmeans, mst, dast).
+
+    Layout:
+      4 panels → 2×2
+      5 panels → 2×3 (last cell blank)
     """
-    assert len(panels) == 4, f"Expected 4 panels for 2×2, got {len(panels)}"
+    n = len(panels)
+    if n == 4:
+        nrows, ncols = 2, 2
+        figsize = DEMO_FIGSIZE_STACK
+        layout_fn = layout_demo_stack
+    elif n == 5:
+        nrows, ncols = 2, 3
+        figsize = DEMO_FIGSIZE_STACK_2x3
+        layout_fn = layout_demo_stack_2x3
+    else:
+        raise AssertionError(f"Expected 4 or 5 panels, got {n}")
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=DEMO_FIGSIZE_STACK, sharex=True, sharey=False)
-    layout_demo_stack(fig)
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=False)
+    layout_fn(fig)
     fig.canvas.draw()
 
-    labels_abcd = ["(a)", "(b)", "(c)", "(d)"]
+    labels = [f"({chr(ord('a') + i)})" for i in range(nrows * ncols)]
 
     def _draw(ax, panel, label_prefix: str, is_bottom_row: bool):
         kind = panel["kind"]
@@ -560,16 +793,20 @@ def plot_demo_combined(panels, out_path: str) -> tuple[Path, Path]:
                 model=panel.get("model"),
                 segment_colors=panel.get("segment_colors"),
                 segment_cmap_name=panel.get("segment_cmap_name", "tab10"),
+                seg_estimated_actions=panel.get("seg_estimated_actions"),
             )
         else:
             raise ValueError(f"Unknown panel kind: {kind!r}")
         _panel_caption(ax, caption, is_bottom_row=is_bottom_row)
 
-    positions = [(0, 0, False), (0, 1, False), (1, 0, True), (1, 1, True)]
-    for (row, col, is_bottom), panel, lbl in zip(positions, panels, labels_abcd):
-        _draw(axes[row][col], panel, lbl, is_bottom)
+    flat_axes = np.asarray(axes).ravel()
+    for i, panel in enumerate(panels):
+        row, col = divmod(i, ncols)
+        _draw(flat_axes[i], panel, labels[i], is_bottom_row=(row == nrows - 1))
+    for j in range(n, nrows * ncols):
+        flat_axes[j].set_visible(False)
 
-    layout_demo_stack(fig)
+    layout_fn(fig)
     paths = save_demo_figure(fig, out_path)
     plt.close(fig)
     return paths
@@ -638,6 +875,7 @@ def plot_demo_segmentation(
     model=None,
     segment_colors=None,
     segment_cmap_name: str = "tab10",
+    seg_estimated_actions=None,
 ) -> tuple[Path, Path]:
     """Save a single-panel algorithm segmentation figure for the discrete demo."""
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
@@ -649,6 +887,7 @@ def plot_demo_segmentation(
         title=algo_panel_title(algo, M),
         tree=tree, algo=algo, model=model,
         segment_colors=segment_colors, segment_cmap_name=segment_cmap_name,
+        seg_estimated_actions=seg_estimated_actions,
     )
     ax.set_xlabel(DEMO_DISCRETE_XLABEL)
     paths = save_demo_figure(fig, out_path)

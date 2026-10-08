@@ -36,7 +36,8 @@ class DASTree:
     """DAST decision tree: best-first growth to M leaves."""
 
     def __init__(self, x, y, D, gamma, candidate_thresholds,
-                 min_leaf_size, algo, use_hybrid_method, action_num=None):
+                 min_leaf_size, algo, use_hybrid_method, action_method: str,
+                 action_num=None, include_interactions: bool = False):
         self.x               = x
         self.y               = y
         self.D               = D
@@ -46,6 +47,8 @@ class DASTree:
         self.algo            = algo
         self.use_hybrid_method = use_hybrid_method
         self.action_num      = action_num
+        self.action_method   = action_method
+        self.include_interactions = include_interactions
 
         self.root       = None
         self.leaf_nodes = []   # maintained in sync throughout build
@@ -145,7 +148,11 @@ class DASTree:
             if leaf.value is None:
                 leaf.value = compute_node_DR_value(
                     self.y, self.D, self.gamma, leaf.indices,
-                    use_hybrid_method=self.use_hybrid_method,
+                    self.use_hybrid_method,
+                    X=self.x,
+                    action_method=self.action_method,
+                    action_num=self.action_num,
+                    include_interactions=self.include_interactions,
                 )
 
         for i, node in enumerate(self.leaf_nodes):
@@ -199,7 +206,11 @@ class DASTree:
         else:
             V_node = compute_node_DR_value(
                 self.y, self.D, self.gamma, indices,
-                use_hybrid_method=self.use_hybrid_method,
+                self.use_hybrid_method,
+                X=self.x,
+                action_method=self.action_method,
+                action_num=self.action_num,
+                include_interactions=self.include_interactions,
             )
 
         best_gain          = -np.inf
@@ -219,11 +230,19 @@ class DASTree:
 
                 V_left  = compute_node_DR_value(
                     self.y, self.D, self.gamma, left_idx,
-                    use_hybrid_method=self.use_hybrid_method,
+                    self.use_hybrid_method,
+                    X=self.x,
+                    action_method=self.action_method,
+                    action_num=self.action_num,
+                    include_interactions=self.include_interactions,
                 )
                 V_right = compute_node_DR_value(
                     self.y, self.D, self.gamma, right_idx,
-                    use_hybrid_method=self.use_hybrid_method,
+                    self.use_hybrid_method,
+                    X=self.x,
+                    action_method=self.action_method,
+                    action_num=self.action_num,
+                    include_interactions=self.include_interactions,
                 )
                 gain = V_left + V_right - V_node
 
@@ -277,11 +296,14 @@ class DASTree:
 
     def _fit_segment_and_assign(self, customers, indices, data, segment_id):
         """Estimate parameters for one leaf and assign to its training customers."""
-        X_seg = data['X'][indices]
-        D_seg = data['D'][indices]
-        Y_seg = data['Y'][indices]
-
-        est_tau, est_action = estimate_segment_parameters(X_seg, D_seg, Y_seg)
+        est_tau, est_action = estimate_segment_parameters(
+            data['X'], data['D'], data['Y'],
+            method=self.action_method,
+            gamma=self.gamma,
+            indices=indices,
+            action_num=self.action_num,
+            include_interactions=self.include_interactions,
+        )
         segment = SegmentEstimate(est_tau, est_action, segment_id)
 
         for i in indices:
@@ -300,7 +322,9 @@ class DASTree:
 
 def DAST_segment_and_estimate(pop: PopulationSimulator, n_segments,
                                min_leaf_size, algo,
-                               use_hybrid_method, debug=False):
+                               use_hybrid_method, action_method: str,
+                               include_interactions: bool = False,
+                               debug=False):
     """
     Main interface for DAST algorithm.
 
@@ -353,6 +377,8 @@ def DAST_segment_and_estimate(pop: PopulationSimulator, n_segments,
         algo=algo,
         use_hybrid_method=use_hybrid_method,
         action_num=pop.action_num,
+        action_method=action_method,
+        include_interactions=include_interactions,
     )
 
     tree.build(M=n_segments, debug=debug)

@@ -12,12 +12,13 @@ Scans experiment pkls, builds one CSV with both metrics, and plots two figures:
 Usage (build + plot in one step):
   python analysis/plot_trends_auto.py build-csv \\
       --dir exp_feb_2026/discrete/varying_d_set8
-  # -> figures/curves.csv
-  # -> figures/curves_relative_comp.pdf/.png
-  # -> figures/curves_relative_oracle.pdf/.png
+  # -> <dir>/curves.csv
+  # -> <dir>/curves_relative_comp.pdf/.png
+  # -> <dir>/curves_relative_oracle.pdf/.png
 
 Re-plot from an existing CSV only:
-  python analysis/plot_trends_auto.py plot-csv --csv figures/curves.csv
+  python analysis/plot_trends_auto.py plot-csv \\
+      --csv exp_feb_2026/discrete/varying_d_set8/curves.csv
 """
 
 import os
@@ -60,7 +61,6 @@ YLABEL_MAP = {
     "regret":          "(oracle - algo) / oracle (%)",
 }
 
-# dast / dast_old get distinct colors; both highlighted in regret mode
 DAST_COLOR     = "#E41A1CAF"
 DAST_LABEL     = "DAST"
 
@@ -373,11 +373,11 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
     algos_present = list(df["algo"].unique())
 
     if metric == "regret":
-        # All algos as lines; dast / dast_old highlighted
+        # All algos as lines; dast highlighted
         order = ["dast"] + [a for a in COMPARATOR_ORDER if a in algos_present]
         algos = order + [a for a in algos_present if a not in order]
     else:
-        # Only comparators (no dast line); dast_old treated as comparator
+        # Only comparators (no dast line)
         order = [a for a in COMPARATOR_ORDER if a in algos_present]
         algos = order + [a for a in algos_present if a not in order and a != "dast"]
 
@@ -389,9 +389,6 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
         if algo == "dast":
             ls = "--" if metric == "regret" else "-"
             color, label, lw, zo = DAST_COLOR, DAST_LABEL, 2.5, 5
-        # elif algo == "dast_old":
-        #     ls = "--" if metric == "regret" else "-"
-        #     color, label, lw, zo = DAST_OLD_COLOR, DAST_OLD_LABEL, 2.3, 4
         else:
             color = DEFAULT_COLORS.get(algo, None)
             label = LABEL_MAP.get(algo, algo)
@@ -485,8 +482,13 @@ def plot_from_csv(csv_path, out_fig, show_band=False, band_alpha=0.12):
 
 
 def default_out_fig(out_csv):
-    """figures/curves.csv -> figures/curves.pdf (per-metric suffixes added in plot_from_csv)."""
+    """<dir>/curves.csv -> <dir>/curves.pdf (per-metric suffixes added in plot_from_csv)."""
     return os.path.splitext(out_csv)[0] + ".pdf"
+
+
+def default_out_csv(in_dir):
+    """Write trend CSV next to the experiment pkls."""
+    return os.path.join(in_dir, "curves.csv")
 
 
 # ---------------------------------------------------------------
@@ -501,7 +503,8 @@ def main():
     p1 = sub.add_parser("build-csv",
                         help="Scan pkls, write CSV, and plot both metrics (default).")
     p1.add_argument("--dir",          required=True)
-    p1.add_argument("--out_csv",      default="figures/curves.csv")
+    p1.add_argument("--out_csv",      default=None,
+                    help="CSV path (default: <dir>/curves.csv)")
     p1.add_argument("--out_fig",      default=None,
                     help="Figure stem (default: same as --out_csv with .pdf)")
     p1.add_argument("--file_pattern", default="exp_*.pkl")
@@ -523,9 +526,10 @@ def main():
     args = parser.parse_args()
 
     if args.cmd == "build-csv":
+        out_csv = args.out_csv or default_out_csv(args.dir)
         df, keys, params, nfiles = build_csv_from_dir(
             in_dir=args.dir,
-            out_csv=args.out_csv,
+            out_csv=out_csv,
             file_pattern=args.file_pattern,
             sigma_clip=args.sigma_clip,
             sigma=args.sigma,
@@ -536,12 +540,12 @@ def main():
         print(f"[OK] Metrics:     {', '.join(BUILD_METRICS)}")
         print(f"[OK] Param names: {params}")
         print(f"[OK] Entities:    {keys}")
-        print(f"[OK] Saved CSV -> {args.out_csv}")
+        print(f"[OK] Saved CSV -> {out_csv}")
 
         if not args.no_plot:
-            out_fig = args.out_fig or default_out_fig(args.out_csv)
+            out_fig = args.out_fig or default_out_fig(out_csv)
             saved = plot_from_csv(
-                csv_path=args.out_csv,
+                csv_path=out_csv,
                 out_fig=out_fig,
                 show_band=args.show_band,
             )

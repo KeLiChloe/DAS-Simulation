@@ -9,9 +9,9 @@ from ground_truth import PopulationSimulator, SegmentEstimate
 from utils import assign_trained_customers_to_segments, assign_new_customers_to_segments, evaluate_on_validation, estimate_segment_parameters
 import numpy as np
 
-def KMeans_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat, D_vec, y_vec, algo, include_interactions, random_state=None, is_discrete=False):
+def KMeans_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat, D_vec, y_vec, algo, include_interactions, action_method: str, random_state=None):
     """
-    Perform K-Means-based segmentation and OLS-based estimation per segment.
+    Perform K-Means-based segmentation and per-segment action estimation.
 
     Parameters:
         pop: PopulationSimulator object with all simulated data
@@ -33,11 +33,14 @@ def KMeans_segment_and_estimate(pop: PopulationSimulator, n_segments: int, x_mat
         if len(idx_m) == 0:
             raise ValueError(f"No customers assigned to segment {m}. ")
 
-        x_m = x_mat[idx_m]
-        D_m = D_vec[idx_m]
-        y_m = y_vec[idx_m]
-        
-        est_tau, est_action = estimate_segment_parameters(x_m, D_m, y_m)
+        est_tau, est_action = estimate_segment_parameters(
+            x_mat, D_vec, y_vec,
+            method=action_method,
+            gamma=pop.gamma_train,
+            indices=idx_m,
+            action_num=pop.action_num,
+            include_interactions=include_interactions,
+        )
         est_seg = SegmentEstimate(est_tau, est_action, segment_id=m)
         pop.est_segments_list[f"{algo}"].append(est_seg)
 

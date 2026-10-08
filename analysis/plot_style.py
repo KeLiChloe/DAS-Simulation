@@ -26,7 +26,6 @@ DEFAULT_REMOVE_EXTREME = {
     "kmeans-standard": True,
     "mst":             True,
     "clr-standard":    True,
-    "dast_old":        True,
     "t_learner":       True,
     "x_learner":       True,
     "dr_learner":      True,
@@ -42,12 +41,12 @@ DEFAULT_COLORS = {
     "gmm-standard":    "#006135AF",
     "clr-standard":    "#F59134AF",
     "mst":             "#937860AF",
-    "dast_old":        "#C2C2C2AE",
     "t_learner":       "#6BC735AF",
     "s_learner":       "#1F5BFFAF",
     "x_learner":       "#FF5832AD",
     "dr_learner":      "#7A5CFFAF",
-    "policy_tree":     "#333333AF",
+    "causal_forest":   "#0097A7AF",  # teal (avoid brown clash with mst)
+    "policy_tree":     "#9E9E9EAF",
 }
 
 # ------------------------------------------------------------------
@@ -58,7 +57,6 @@ LABEL_MAP = {
     "gmm-standard":    "GMM",
     "clr-standard":    "CLR",
     "mst":             "MST",
-    "dast_old":        "DAST (old)",
     "t_learner":       "T-Learner",
     "s_learner":       "S-Learner",
     "x_learner":       "X-Learner",
@@ -86,7 +84,6 @@ COMPARATOR_ORDER = [
     "kmeans-standard",
     "mst",
     "clr-standard",
-    "dast_old",
     # "t_learner",
     # "s_learner",
     # "x_learner",
@@ -97,9 +94,9 @@ COMPARATOR_ORDER = [
 # ------------------------------------------------------------------
 # Demo / segmentation figure layout (single-column panel)
 # ------------------------------------------------------------------
-DEMO_FIGSIZE_2D = (5.2, 3.5)
-DEMO_FIGSIZE_2D_DISCRETE = (6.2, 3.8)  # ylim (y_min-1, y_max+1); legend above y=1 band
+DEMO_FIGSIZE_2D = (6.2, 3.8)  # Bernoulli: ylim (y_min-0.5, y_max+1); legend above y=1 band
 DEMO_FIGSIZE_STACK = (11.0, 6.2)     # 2×2 Bernoulli demo composite
+DEMO_FIGSIZE_STACK_2x3 = (16.0, 6.2)  # 2×3 with MST panel
 DEMO_FIGSIZE_3D = (6.5, 5.0)
 
 # Discrete Bernoulli demo axis labels (combined + standalone figures)
@@ -109,8 +106,8 @@ DEMO_SCATTER_SIZE = 32
 DEMO_SCATTER_ALPHA = 0.82
 BINARY_Y_PAD = 0.04  # room for markers at y in {0, 1} without clipping
 def discrete_y_display_limits(y_min: float = 0.0, y_max: float = 1.0) -> tuple[float, float]:
-    """Bernoulli panels: show (y_min - 1, y_max + 1) on the axis; ticks stay at 0 and 1."""
-    return y_min - 1.0, y_max + 1.0
+    """Bernoulli panels: show (y_min - 0.5, y_max + 1) on the axis; ticks stay at 0 and 1."""
+    return y_min - 0.5, y_max + 1.0
 
 
 def discrete_legend_axes_y_floor(ax, *, pad: float = 0.05) -> float:
@@ -130,31 +127,40 @@ SAVEFIG_KW = dict(
 )
 
 
-def demo_figsize_2d(*, discrete_outcome: bool = False) -> tuple:
-    return DEMO_FIGSIZE_2D_DISCRETE if discrete_outcome else DEMO_FIGSIZE_2D
+def demo_figsize_2d(*, discrete_outcome: bool = True) -> tuple:
+    return DEMO_FIGSIZE_2D
 
 
 def demo_legend_style(*, ncol: int = 1) -> dict:
     """Legend styling; ncol=1 gives one line per segment entry."""
     return dict(
         ncol=ncol,
-        fontsize=8.0,
+        fontsize=11.0,
         frameon=True,
         fancybox=False,
         framealpha=0.98,
         edgecolor="0.72",
         facecolor="white",
         handletextpad=0.4,
-        labelspacing=0.35,
+        labelspacing=0.45,
         borderpad=0.35,
     )
 
 
-def layout_demo_2d(fig, *, discrete_outcome: bool) -> None:
-    if discrete_outcome:
-        fig.subplots_adjust(top=0.84, left=0.10, right=0.97, bottom=0.22)
-    else:
-        fig.subplots_adjust(top=0.88, left=0.12, right=0.97, bottom=0.14)
+def set_demo_plot_style():
+    """Larger fonts for discrete demo panels (titles, axes, ticks, legends)."""
+    set_plot_style()
+    mpl.rcParams.update({
+        "axes.labelsize":  14,
+        "axes.titlesize":  14,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 12,
+    })
+
+
+def layout_demo_2d(fig, *, discrete_outcome: bool = True) -> None:
+    fig.subplots_adjust(top=0.84, left=0.10, right=0.97, bottom=0.22)
 
 
 def layout_demo_stack(fig) -> None:
@@ -162,8 +168,13 @@ def layout_demo_stack(fig) -> None:
                         top=0.94, left=0.08, right=0.97, bottom=0.20)
 
 
+def layout_demo_stack_2x3(fig) -> None:
+    fig.subplots_adjust(hspace=0.48, wspace=0.18,
+                        top=0.94, left=0.05, right=0.98, bottom=0.20)
+
+
 def style_binary_y_axis(ax, *, z_axis: bool = False, y_vals=None) -> None:
-    """Bernoulli: ylim (y_min - 1, y_max + 1); tick labels only at 0 and 1."""
+    """Bernoulli: ylim (y_min - 0.5, y_max + 1); tick labels only at 0 and 1."""
     if y_vals is not None:
         y = np.asarray(y_vals, dtype=float).ravel()
         y_min, y_max = float(y.min()), float(y.max())

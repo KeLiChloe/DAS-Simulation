@@ -14,7 +14,7 @@ _ACTION_MARKERS = ['o', 'x', '^', 's', 'D', 'v', 'P', '*']
 
 
 def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=None,
-                      out_dir="figures", *, discrete_outcome=False, segment_colors=None,
+                      out_dir="figures", *, segment_colors=None,
                       segment_cmap_name="Set1"):
     """
     Visualize segmentation with:
@@ -126,10 +126,7 @@ def plot_segmentation(labels, X, y_vec, D_vec, algo, M=None, tree=None, run_idx=
 
         ax.set_xlabel("x_0");  ax.set_ylabel("outcome")
         ax.set_title(f"{algo.upper()}-Based Segmentation, M={M}")
-        if discrete_outcome:
-            style_binary_y_axis(ax, y_vals=y_vec)
-        else:
-            ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        style_binary_y_axis(ax, y_vals=y_vec)
         ax.grid(True, alpha=0.4)
 
     # Deduplicated legend
@@ -187,7 +184,7 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
                       x_col='x_0', x2_col='x_1',
                       y_col='outcome', D_col='D_i',
                       run_idx=None, out_dir="figures",
-                      *, discrete_outcome=False, segment_colors=None,
+                      *, segment_colors=None,
                       segment_cmap_name="Set2"):
     """
     Plot ground-truth segmentation.
@@ -248,10 +245,7 @@ def plot_ground_truth(df, title="Ground-Truth Segmentation",
 
         ax.set_xlabel(f"${x_col}$", fontsize=16)
         ax.set_ylabel(f"${y_col}$", fontsize=16)
-        if discrete_outcome:
-            style_binary_y_axis(ax, y_vals=df[y_col].to_numpy())
-        else:
-            ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        style_binary_y_axis(ax, y_vals=df[y_col].to_numpy())
         ax.grid(True, alpha=0.4)
 
     ax.set_title(title, fontsize=16)

@@ -1,33 +1,55 @@
 
 import numpy as np
+from action_estimation import (
+    ACTION_METHODS,
+    estimate_segment_parameters,
+    recommend_segment_action,
+)
 from ground_truth import PopulationSimulator
-from sklearn.linear_model import LinearRegression
 import pandas as pd
 import plotly.graph_objects as go
 import argparse
 
-def build_design_matrix(x_array, D_array, include_interactions):
+def build_design_matrix(x_array, D_array, include_interactions, action_num=None):
     """
-    Add intercept and treatment column to covariates.
-    
-    Parameters:
-        x_array: (N, d) array of covariates
-        D_array: (N,) array of treatment indicators
-        include_interactions: If True, includes treatment * covariate interactions
-    
-    Returns:
-        Design matrix with columns: [intercept, x, D, x*D (if include_interactions)]
+    Design matrix for CLR / MST Bernoulli fits.
+
+    Treatment is one-hot with action 0 as reference (same as action_estimation
+    logistic), so multi-arm D is not treated as a numeric scalar.
+
+    Columns:
+      [intercept, x, 1{D=1}, ..., 1{D=K-1}]
+      + [x * 1{D=a} for a=1..K-1] if include_interactions
     """
+    x_array = np.asarray(x_array, dtype=float)
+    D = np.ravel(np.asarray(D_array)).astype(int)
+    if x_array.ndim == 1:
+        x_array = x_array.reshape(-1, 1)
     N, d = x_array.shape
-    intercept = np.ones((N, 1))
-    D_col = D_array.reshape(-1, 1)
-    
-    if include_interactions:
-        # Add interaction terms: x_j * D for each covariate j
-        interactions = x_array * D_col  # Element-wise multiplication
-        return np.hstack([intercept, x_array, D_col, interactions])
+
+    if action_num is None:
+        K = int(max(D.max() + 1, 2)) if N > 0 else 2
     else:
-        return np.hstack([intercept, x_array, D_col])
+        K = int(action_num)
+        if K < 1:
+            raise ValueError(f"action_num must be >= 1, got {K}")
+
+    intercept = np.ones((N, 1))
+    blocks = [intercept, x_array]
+
+    dummies = []
+    for a in range(1, K):
+        dummies.append((D == a).astype(float).reshape(-1, 1))
+    if dummies:
+        D_oh = np.hstack(dummies)
+        blocks.append(D_oh)
+        if include_interactions:
+            # x_j * 1{D=a} for each non-reference action
+            blocks.append(x_array[:, :, None] * D_oh[:, None, :])
+            # reshape last block: (N, d, K-1) -> (N, d*(K-1))
+            blocks[-1] = blocks[-1].reshape(N, d * (K - 1))
+
+    return np.hstack(blocks)
 
 
 def assign_trained_customers_to_segments(pop: PopulationSimulator, segment_labels, algo):
@@ -47,52 +69,6 @@ def assign_trained_customers_to_segments(pop: PopulationSimulator, segment_label
         assert cust.est_segment[algo].segment_id == m, f"Segment ID mismatch for customer {cust.customer_id}: expected {m}, got {cust.est_segment[algo].segment_id}"
         
 
-def estimate_segment_parameters(X, D, Y):
-    """
-    Estimate treatment effect and recommend action.
-
-    For binary treatment (2 actions):
-        - est_tau = mean(Y|D=1) - mean(Y|D=0)
-        - est_action = 1 if est_tau >= 0 else 0
-
-    For multi-arm treatment (>2 actions):
-        - For each action a, compute mean_a = mean(Y|D=a)
-        - est_action = argmax_a mean_a
-        - est_tau = mean_{est_action} - mean_0 (effect relative to action 0)
-
-    Parameters:
-        X: (N, d) array of covariates (not used, kept for API compatibility)
-        D: (N,) array of action indicators
-        Y: (N,) array of outcomes
-
-    Returns:
-        est_tau: float, estimated treatment effect
-        est_action: int, recommended action (or 404 if any action is missing)
-    """
-    Y = np.ravel(Y)
-    D = np.ravel(D).astype(int)   # ensure integer dtype for reliable membership tests
-
-    unique_actions_in_data = set(D.tolist())
-
-    # # Strict check: all actions 0..action_num-1 must be present
-    # for a in range(action_num):
-    #     if a not in unique_actions_in_data:
-    #         print(f"Warning: Action {a} missing in segment data.")
-    #         return 404, 404
-    
-    # Compute mean outcome for each action
-    action_means = {}
-    for action in unique_actions_in_data:
-        action_means[int(action)] = np.mean(Y[D == action])
-    
-    # Recommend action with highest mean outcome
-    est_action = max(action_means, key=action_means.get)
-    
-    # Treatment effect relative to action 0
-    baseline_action = 0 if 0 in action_means else min(action_means.keys())
-    est_tau = action_means[est_action] - action_means[baseline_action]
-    
-    return est_tau, int(est_action)
 
 
 def plot_segment_sankey(original, pruned):
@@ -121,26 +97,31 @@ def plot_segment_sankey(original, pruned):
 
 
 # estimated total profits of a segment after applying the learnt policy to the customers in that segment
-def compute_node_DR_value(Y, D, gamma, indices, use_hybrid_method):
+def compute_node_DR_value(
+    Y, D, gamma, indices, use_hybrid_method,
+    *,
+    X=None,
+    action_method: str,
+    action_num: int | None = None,
+    include_interactions: bool = False,
+):
     D_m = D[indices]
     Y_m = Y[indices]
+    X_full = np.asarray(X) if X is not None else np.zeros((len(np.ravel(Y)), 1))
 
-    unique_actions_in_data = np.unique(D_m)
+    a_i = recommend_segment_action(
+        X_full,
+        D,
+        Y,
+        method=action_method,
+        gamma=gamma,
+        indices=indices,
+        action_num=action_num,
+        include_interactions=include_interactions,
+    )
+    if a_i == 404:
+        return 0.0
 
-    # Compute mean outcome for each action
-    action_means = {}
-    for action in unique_actions_in_data:
-        Y_a = Y_m[D_m == action]
-        action_means[int(action)] = np.mean(Y_a) if len(Y_a) > 0 else 0
-    
-    # Recommend action with highest mean outcome
-    a_i = max(action_means, key=action_means.get)
-    
-    # Compute treatment effect relative to action 0 (or minimum action)
-    baseline_action = 0 if 0 in action_means else min(action_means.keys())
-    tau_hat = action_means[a_i] - action_means[baseline_action]
-    
-    
     if use_hybrid_method is True:
         # Method 1: Direct + Gamma
         # If D_m[i] = a_i, then we get profit Y_m[i]
@@ -217,7 +198,7 @@ def pick_M_for_algo(algo, df_results_M):
     val_col = f'{algo}_val'
 
     max_val_algos = ["gmm-da", "kmeans-da", "clr-da",
-                     "dast", "dast_old", "mst", "kmeans-standard"]
+                     "dast", "mst", "kmeans-standard"]
     min_val_algos = ["gmm-standard", "clr-standard"]
     meta_learners = ["t_learner", "s_learner", "x_learner",
                      "dr_learner", "causal_forest", "policy_tree"]
@@ -258,24 +239,19 @@ def parse_args():
 
     parser.add_argument("--plot", action="store_true", help="Enable plotting")
 
-
-    parser.add_argument("--outcome_type", type=str, choices=["continuous", "discrete"], required=True,
-                        help="Outcome type: 'continuous' (linear regression) or 'discrete' (Bernoulli)")
-    parser.add_argument("--alpha_range", type=float, nargs=2, help="Range for alpha intercept (continuous only)")
-    parser.add_argument("--beta_range",  type=float, nargs=2, help="Range for covariate effect beta (both outcome types)")
-    parser.add_argument("--tau_range",   type=float, nargs=2, default=None,
-                        help="Range for treatment effect tau (continuous only; ignored/not needed for discrete)")
-    parser.add_argument("--target_p_range", type=float, nargs=2,
-                        help="[discrete only] P(Y=1 | x=x_mean, D=a) range for NON-winner actions "
+    parser.add_argument("--beta_range",  type=float, nargs=2, help="Range for covariate effect beta")
+    parser.add_argument("--target_p_range", type=float, nargs=2, required=True,
+                        help="P(Y=1 | x=x_mean, D=a) range for NON-winner actions "
                              "(or all actions when --winner_p_range is not set). "
                              "Alpha and tau are back-computed to hit these targets exactly.")
     parser.add_argument("--winner_p_range", type=float, nargs=2, default=None,
-                        help="[discrete only, optional] P(Y=1 | x=x_mean, D=a*) range for the "
+                        help="[optional] P(Y=1 | x=x_mean, D=a*) range for the "
                              "WINNER action (randomly chosen per segment). When set, one action per "
                              "segment gets a probability drawn from this range while all other "
                              "actions use --target_p_range, ensuring a clear best action. "
                              "Example: --target_p_range 0.02 0.10 --winner_p_range 0.15 0.40")
-    parser.add_argument("--delta_range", type=float, nargs=2, help="Range for delta (interaction) parameter (continuous only)")
+    parser.add_argument("--delta_range", type=float, nargs=2,
+                        help="Range for delta (treatment–covariate interaction) in the DGP")
     parser.add_argument("--x_mean_range", type=float, nargs=2, help="Range for x_mean parameter")
 
     
@@ -292,27 +268,42 @@ def parse_args():
                              "When set, within-cluster covariate noise is chosen so that "
                              "the median nearest-neighbor center distance is this many standard deviations.")
     parser.add_argument("--disturb_covariate_noise", type=float, help="Covariate noise across segments")
-    parser.add_argument("--Y_noise_std_scale", type=float, help="Scale factor for outcome noise as a multiple of average |tau| (continuous only, required when outcome_type=continuous)")
     
     parser.add_argument("--kmeans_coef", type=float, help="Coefficient for k-means weighting")
 
     parser.add_argument("--DR_generation_method", type=str,
                         choices=["reg", "mlp", "lightgbm", "random_forest", "xgboost"],
-                        help="DR generation method. 'reg': linear/logistic regression. 'mlp': neural network. "
+                        help="DR generation method. 'reg': logistic regression. 'mlp': neural network. "
                              "'lightgbm': LightGBM. 'random_forest': sklearn RandomForest. 'xgboost': XGBoost.")
     
     # default is True
     parser.add_argument("--use_hybrid_method", type=lambda x: str(x).lower() == 'true', 
                         default=True, 
                         help="Use hybrid method for tree splitting and evaluation (default: True). Pass True or False")
+
+    parser.add_argument(
+        "--action_method",
+        type=str,
+        choices=list(ACTION_METHODS),
+        help="Node/segment action rule: diff_in_means, gamma (argmax mean DR score), "
+             "or logistic (node-level logistic model).",
+    )
     
     parser.add_argument("--implementation_scale", type=float, help="Scale of implementation population")
 
     parser.add_argument("--N_sims", type=int, help="Number of simulations to run")
     
     parser.add_argument("--n_workers", type=int, default=None,
-                        help="Number of parallel worker processes (default: all CPU cores). "
-                             "Set to 1 to disable parallelism.")
+                        help="Deprecated/ignored: simulations always run sequentially "
+                             "(avoids macOS fork + LightGBM/OpenMP crashes).")
+
+    parser.add_argument(
+        "--cv_folds",
+        type=int,
+        default=5,
+        help="Folds for M selection on dast / *-da (default: 5). "
+             "cv_folds=1 uses a single 80/20 holdout instead of K-fold CV.",
+    )
 
     parser.add_argument("--save_file", type=str, help="Path to save experiment results")
     

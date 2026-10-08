@@ -4,7 +4,7 @@ Policy Tree individual-level policy recommendations via R's policytree package.
 Workflow (aligned with causal_forest / meta-learners):
 1. Fit a GRF forest on pilot data
 2. Compute doubly-robust scores (Gamma)
-3. Fit a shallow policy tree on (X, Gamma)
+3. Fit hybrid_policy_tree on (X, Gamma)  (exact lookahead of search.depth)
 4. Predict recommended action per implementation customer (type="action.id")
 
 NOTE: we do NOT use a numpy2ri localconverter block.  The numpy2ri converter
@@ -14,18 +14,55 @@ built explicitly from rpy2 primitive constructors so GRF sees the correct types:
   X → R matrix   (class: 'matrix' 'array')   — grf accepts this
   Y → R numeric  (class: 'numeric')
   W → R factor   (class: 'factor')
+
+Streamlit script threads start with rpy2's ContextVar default (= missingconverter).
+Using Converter.context() would restore that missing converter on exit and break
+subsequent R calls. We instead set_conversion(default_converter) under a lock and
+leave it installed for the thread.
 """
 
+import os
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+
 import numpy as np
+
+# Homebrew R + avoid CRAN-R.framework API binary when only brew R is present.
+_hb_bin = Path("/opt/homebrew/bin")
+if _hb_bin.is_dir():
+    _path = os.environ.get("PATH", "")
+    if str(_hb_bin) not in _path.split(os.pathsep):
+        os.environ["PATH"] = f"{_hb_bin}{os.pathsep}{_path}"
+os.environ.setdefault("RPY2_CFFI_MODE", "ABI")
 
 _r_initialized = False
 _ro = None
 _grf = None
 _policytree = None
+_r_lock = threading.RLock()
+
+
+def _activate_conversion():
+    """Install robjects default conversion rules in *this* ContextVar context."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import get_conversion, set_conversion
+
+    # Always (re)install — Streamlit threads often start on missingconverter.
+    set_conversion(ro.default_converter)
+    return get_conversion()
+
+
+@contextmanager
+def _r_context():
+    with _r_lock:
+        _activate_conversion()
+        yield
 
 
 def _init_r():
     global _r_initialized, _ro, _grf, _policytree
+    _activate_conversion()
     if _r_initialized:
         return
 
@@ -78,9 +115,13 @@ def _gamma_column_actions(gamma_r):
     return np.array([int(float(str(s))) for s in list(colnames)], dtype=int)
 
 
-def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
+def policy_tree_predict(
+    implement_customers, x_mat, D_vec, y_vec, depth=3, num_trees=500, search_depth=2,
+):
     """
-    Fit a policy tree and recommend an action for each implementation customer.
+    Fit a hybrid policy tree and recommend an action for each implementation customer.
+
+    Uses policytree::hybrid_policy_tree (exact lookahead of search_depth < depth).
 
     Returns
     -------
@@ -90,6 +131,16 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
         action_identity[j] = actual treatment label for Gamma column j+1.
         main.py: act_id[recommended_idx[i]]
     """
+    with _r_context():
+        return _policy_tree_predict_locked(
+            implement_customers, x_mat, D_vec, y_vec,
+            depth=depth, num_trees=num_trees, search_depth=search_depth,
+        )
+
+
+def _policy_tree_predict_locked(
+    implement_customers, x_mat, D_vec, y_vec, depth=3, num_trees=500, search_depth=2,
+):
     _init_r()
 
     # ── prepare numpy arrays ──────────────────────────────────────────────────
@@ -112,7 +163,8 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
     n_train, n_impl = x_mat.shape[0], X_impl.shape[0]
     print(
         f"[policy_tree] start: n_train={n_train}, n_impl={n_impl}, "
-        f"d={x_mat.shape[1]}, depth={depth}, actions={unique_actions.tolist()}",
+        f"d={x_mat.shape[1]}, depth={depth}, search_depth={search_depth}, "
+        f"num_trees={num_trees}, actions={unique_actions.tolist()}",
         flush=True,
     )
 
@@ -130,7 +182,7 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
 
     # ── GRF + policytree ─────────────────────────────────────────────────────
     print("[policy_tree] fitting multi_arm_causal_forest ...", flush=True)
-    forest = _grf.multi_arm_causal_forest(X_r, y_r, D_r)
+    forest = _grf.multi_arm_causal_forest(X_r, y_r, D_r, num_trees=int(num_trees))
 
     print("[policy_tree] computing double_robust_scores (Gamma) ...", flush=True)
     gamma_r = _policytree.double_robust_scores(forest)
@@ -142,8 +194,22 @@ def policy_tree_predict(implement_customers, x_mat, D_vec, y_vec, depth=2):
         flush=True,
     )
 
-    print(f"[policy_tree] fitting policy_tree(depth={depth}) ...", flush=True)
-    tree = _policytree.policy_tree(X_r, gamma_r, depth=depth)
+    if int(search_depth) >= int(depth):
+        raise ValueError(
+            "hybrid_policy_tree requires search_depth < depth, "
+            f"got search_depth={search_depth}, depth={depth}."
+        )
+    print(
+        f"[policy_tree] fitting hybrid_policy_tree"
+        f"(depth={depth}, search.depth={search_depth}) ...",
+        flush=True,
+    )
+    tree = _policytree.hybrid_policy_tree(
+        X_r, gamma_r,
+        depth=int(depth),
+        search_depth=int(search_depth),
+        verbose=False,
+    )
 
     print("[policy_tree] predicting on implementation set ...", flush=True)
     action_r = _policytree.predict_policy_tree(tree, X_impl_r, type="action.id")
