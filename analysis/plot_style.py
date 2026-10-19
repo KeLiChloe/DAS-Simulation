@@ -53,6 +53,7 @@ DEFAULT_COLORS = {
 # Display labels
 # ------------------------------------------------------------------
 LABEL_MAP = {
+    "dast":            "DAS",  # DAS = DAST + DAMS
     "kmeans-standard": "K-Means",
     "gmm-standard":    "GMM",
     "clr-standard":    "CLR",
@@ -69,8 +70,8 @@ LABEL_MAP = {
 # Axis / title labels indexed by experiment parameter name
 # ------------------------------------------------------------------
 X_LABEL_MAP = {
-    "d":      "Dimension $d$",
-    "K":      "Ground-truth number of clusters ($K$)",
+    "d":      "Dimension ($d$)",
+    "K":      "Number of latent segments ($K$)",
     "delta":  r"Magnitude of interaction effects ($\delta$)",
     "Xnoise": r"Within-cluster covariate noise scale ($X_{\mathrm{noise}}$ std. scale)",
     "mahalanobis_sep": r"Target nearest-neighbor Mahalanobis separation",

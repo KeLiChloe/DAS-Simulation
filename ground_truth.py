@@ -517,7 +517,8 @@ class PopulationSimulator:
 
         Parameters:
         method : str
-            Outcome model type ('reg', 'mlp', 'lightgbm', 'random_forest', 'xgboost')
+            Outcome model type ('logistic', 'mlp', 'lightgbm', 'random_forest',
+            'xgboost'). Legacy alias 'reg' is accepted and mapped to 'logistic'.
         train_customers : list
         val_customers : list  (can be empty)
 
@@ -525,30 +526,38 @@ class PopulationSimulator:
         Gamma_train : np.ndarray, shape (N_train, n_actions)
         Gamma_val   : np.ndarray, shape (N_val, n_actions), or None
         """
-        # Extract train data
-        X_train = np.array([cust.x for cust in train_customers])
-        D_train = np.array([cust.D_i for cust in train_customers])
-        Y_train = np.array([cust.y  for cust in train_customers])
+        if method == "reg":
+            method = "logistic"  # backward-compatible alias
+
+        # Extract train data; force (N, d) even when d=1
+        X_train = np.asarray([cust.x for cust in train_customers], dtype=float)
+        X_train = np.atleast_2d(X_train).reshape(len(train_customers), -1)
+        D_train = np.asarray([cust.D_i for cust in train_customers])
+        Y_train = np.asarray([cust.y  for cust in train_customers], dtype=float)
 
         if len(val_customers) > 0:
-            X_val = np.array([cust.x  for cust in val_customers])
-            D_val = np.array([cust.D_i for cust in val_customers])
-            Y_val = np.array([cust.y  for cust in val_customers])
+            X_val = np.asarray([cust.x for cust in val_customers], dtype=float)
+            X_val = np.atleast_2d(X_val).reshape(len(val_customers), -1)
+            D_val = np.asarray([cust.D_i for cust in val_customers])
+            Y_val = np.asarray([cust.y  for cust in val_customers], dtype=float)
         else:
             X_val = D_val = Y_val = None
 
         n_actions  = self.action_num
 
-        # Propensity scores estimated from full training data
+        # Propensity scores estimated from full training data (CRD: empirical shares)
         e = np.array([np.mean(D_train == a) for a in range(n_actions)])
         e = np.clip(e, 1e-6, 1.0)
 
         # ── helpers ───────────────────────────────────────────────────────────
 
         def _predict_mu(model, X):
-            if hasattr(model, 'predict_proba'):
-                return model.predict_proba(X)[:, 1]
-            return model.predict(X)
+            """P(Y=1 | X, D=a)."""
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(X)
+                classes = list(model.classes_)
+                return proba[:, classes.index(1 if 1 in classes else 1.0)]
+            return np.asarray(model.predict(X), dtype=float)
 
         def _compute_gamma(X, D, Y, models):
             """Gamma[i,a] = mu_a(X_i) + (1/e[a]) * 1[D_i==a] * (Y_i - mu_a(X_i))"""
@@ -562,8 +571,8 @@ class PopulationSimulator:
 
         def _make_model():
             """Return a fresh unfitted Bernoulli outcome model."""
-            if method == "reg":
-                return LogisticRegression(max_iter=1000)
+            if method == "logistic":
+                return LogisticRegression(max_iter=2000, solver="lbfgs")
             elif method == "mlp":
                 return MLPClassifier(hidden_layer_sizes=(64, 32), activation='relu', max_iter=10000)
             elif method == "lightgbm":
@@ -582,8 +591,10 @@ class PopulationSimulator:
                     raise ImportError("xgboost is not installed. Run: pip install xgboost")
                 return XGBClassifier(n_estimators=500, verbosity=0, random_state=42)
             else:
-                raise ValueError(f"Unknown DR generation method: '{method}'. "
-                                 f"Choose from: reg, mlp, lightgbm, random_forest, xgboost")
+                raise ValueError(
+                    f"Unknown DR generation method: '{method}'. "
+                    f"Choose from: logistic, mlp, lightgbm, random_forest, xgboost"
+                )
 
         def _build_models(X, D, Y):
             """Fit one mu_a model per action on the provided subset."""
@@ -593,6 +604,11 @@ class PopulationSimulator:
                 X_a, Y_a = X[mask], Y[mask]
                 if len(X_a) == 0:
                     raise ValueError(f"No training samples for action {a}. Cannot fit outcome model.")
+                if len(np.unique(Y_a)) < 2:
+                    raise ValueError(
+                        f"Action {a} has only one outcome class in the fitting sample "
+                        f"(n={len(Y_a)}, y={np.unique(Y_a).tolist()}); failing this sim."
+                    )
                 m = _make_model()
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", message=".*valid feature names.*",

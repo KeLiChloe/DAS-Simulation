@@ -4,10 +4,11 @@
 """
 Unified trend plot script.
 
-Scans experiment pkls, builds one CSV with both metrics, and plots two figures:
+Scans experiment pkls, builds one CSV with three metrics, and plots figures:
 
   relative_comp   (dast - comp) / |comp|
   relative_oracle (dast - comp) / (oracle - comp)  [requires oracle_profits_impl in pkl]
+  regret          (oracle - algo) / oracle         [requires oracle_profits_impl in pkl]
 
 Usage (build + plot in one step):
   python analysis/plot_trends_auto.py build-csv \\
@@ -15,6 +16,7 @@ Usage (build + plot in one step):
   # -> <dir>/curves.csv
   # -> <dir>/curves_relative_comp.pdf/.png
   # -> <dir>/curves_relative_oracle.pdf/.png
+  # -> <dir>/curves_regret.pdf/.png
 
 Re-plot from an existing CSV only:
   python analysis/plot_trends_auto.py plot-csv \\
@@ -37,32 +39,32 @@ from plot_style import (
     DEFAULT_COLORS, LABEL_MAP, X_LABEL_MAP, COMPARATOR_ORDER,
 )
 
-BUILD_METRICS = ("relative_comp", "relative_oracle")
+BUILD_METRICS = ("relative_comp", "relative_oracle", "regret")
 
 TITLE_MAP = {
-    ("relative_comp",   "d"):     "DAS Improvement Ratio (Relative to Comparator) vs. Dimension ",
-    ("relative_comp",   "K"):     "DAS Improvement Ratio (Relative to Comparator) vs. Num. of Clusters",
-    ("relative_comp",   "delta"):  "DAS Improvement Ratio (Relative to Comparator) vs. Interaction Strength",
-    ("relative_comp",   "Xnoise"): "DAS Improvement Ratio (Relative to Comparator) vs. $X$ Noise Scale",
-    ("relative_comp",   "mahalanobis_sep"): "DAS Improvement Ratio (Relative to Comparator) vs. Mahalanobis Separation",
-    ("relative_oracle", "d"):      "DAS Improvement Ratio (Relative to Oracle) vs. Dimension",
-    ("relative_oracle", "K"):      "DAS Improvement Ratio (Relative to Oracle) vs. Num. of Clusters",
-    ("relative_oracle", "delta"):  "DAS Improvement Ratio (Relative to Oracle) vs. Interaction Strength",
-    ("relative_oracle", "Xnoise"): "DAS Improvement Ratio (Relative to Oracle) vs. $X$ Noise Scale",
-    ("relative_oracle", "mahalanobis_sep"): "DAS Improvement Ratio (Relative to Oracle) vs. Mahalanobis Separation",
-    ("regret",          "d"):     "Regret Ratio vs. Dimension",
-    ("regret",          "K"):     "Regret Ratio vs. Num. of Clusters",
-    ("regret",          "delta"): "Regret Ratio vs. Interaction Strength",
+    ("relative_comp",   "d"):     "DAS Improvement Ratio",
+    ("relative_comp",   "K"):     "DAS Improvement Ratio",
+    ("relative_comp",   "delta"):  "DAS Improvement Ratio",
+    ("relative_comp",   "Xnoise"): "DAS Improvement Ratio",
+    ("relative_comp",   "mahalanobis_sep"): "DAS Improvement Ratio",
+    ("relative_oracle", "d"):      "DAS Oracle-Gap Closure Ratio",
+    ("relative_oracle", "K"):      "DAS Oracle-Gap Closure Ratio",
+    ("relative_oracle", "delta"):  "DAS Oracle-Gap Closure Ratio",
+    ("relative_oracle", "Xnoise"): "DAS Oracle-Gap Closure Ratio",
+    ("relative_oracle", "mahalanobis_sep"): "DAS Oracle-Gap Closure Ratio",
+    ("regret",          "d"):     "Normalized Regret",
+    ("regret",          "K"):     "Normalized Regret",
+    ("regret",          "delta"): "Normalized Regret",
 }
 
 YLABEL_MAP = {
-    "relative_comp":   "(dast - comp) / |comp| (%)",
-    "relative_oracle": "(dast - comp) / (oracle - comp) (%)",
-    "regret":          "(oracle - algo) / oracle (%)",
+    "relative_comp":   r"Improvement over comparator (%)",
+    "relative_oracle": r"Fraction of oracle gap closed (%)",
+    "regret":          r"Implementation regret (%)",
 }
 
 DAST_COLOR     = "#E41A1CAF"
-DAST_LABEL     = "DAST"
+DAST_LABEL     = "DAS"  # DAS = DAST + DAMS; algo key in pkls remains "dast"
 
 
 # ---------------------------------------------------------------
@@ -347,7 +349,7 @@ def build_csv_from_dir(in_dir, out_csv,
 # ---------------------------------------------------------------
 # STEP 2: Plot from CSV
 # ---------------------------------------------------------------
-def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alpha=0.12):
+def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alpha=0.10):
     """Render and save one figure for a single (metric, param_name) slice."""
     xlabel = X_LABEL_MAP.get(param_name, param_name)
     title  = TITLE_MAP.get((metric, param_name),
@@ -357,15 +359,16 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
     os.makedirs(os.path.dirname(out_base) or ".", exist_ok=True)
     set_plot_style()
 
-    AX_TOP   = 0.76
-    LEGEND_Y = AX_TOP + 0.15
-    TITLE_Y  = AX_TOP + 0.2
+    # Slightly more plot area; legend in 4 cols to free vertical space
+    AX_TOP   = 0.78
+    LEGEND_Y = AX_TOP + 0.13
+    TITLE_Y  = AX_TOP + 0.18
 
-    LEFT, RIGHT = 0.14, 0.98
+    LEFT, RIGHT = 0.13, 0.98
     AX_CENTER_X = (LEFT + RIGHT) / 2
 
-    fig, ax = plt.subplots(figsize=(7.2, 4.6))
-    fig.subplots_adjust(left=LEFT, right=RIGHT, bottom=0.14, top=AX_TOP)
+    fig, ax = plt.subplots(figsize=(7.2, 4.5))
+    fig.subplots_adjust(left=LEFT, right=RIGHT, bottom=0.13, top=AX_TOP)
     fig.suptitle(title, x=AX_CENTER_X, y=TITLE_Y,
                  fontsize=15, fontweight="bold", fontfamily="serif",
                  ha="center")
@@ -381,62 +384,98 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
         order = [a for a in COMPARATOR_ORDER if a in algos_present]
         algos = order + [a for a in algos_present if a not in order and a != "dast"]
 
-    for algo in algos:
+    # Plot DAS last so it sits on top of overlapping comparators
+    plot_order = [a for a in algos if a != "dast"] + (["dast"] if "dast" in algos else [])
+    style_by_algo = {}
+
+    for algo in plot_order:
         sub  = df[df["algo"] == algo].sort_values("param_value")
         x    = sub["param_value"].to_numpy(dtype=float)
         y    = sub["mean_pct"].to_numpy(dtype=float)
 
         if algo == "dast":
             ls = "--" if metric == "regret" else "-"
-            color, label, lw, zo = DAST_COLOR, DAST_LABEL, 2.5, 5
+            color, label, lw, zo = DAST_COLOR, DAST_LABEL, 2.6, 6
         else:
             color = DEFAULT_COLORS.get(algo, None)
             label = LABEL_MAP.get(algo, algo)
             lw, ls, zo = 2.0, "-", 3
 
-        ax.plot(x, y, marker="o", label=label, color=color,
-                linewidth=lw, linestyle=ls,
-                markeredgewidth=0.8, zorder=zo)
+        style_by_algo[algo] = dict(color=color, ls=ls, lw=lw, label=label)
+
+        ax.plot(
+            x, y,
+            marker="o", markersize=5.5, label=label, color=color,
+            linewidth=lw, linestyle=ls,
+            markeredgewidth=0.8, zorder=zo,
+        )
 
         if show_band:
             e  = sub["err_pct"].to_numpy(dtype=float)
             ok = np.isfinite(x) & np.isfinite(y) & np.isfinite(e)
             if np.any(ok):
-                ax.fill_between(x[ok], (y - e)[ok], (y + e)[ok],
-                                alpha=band_alpha, color=color, linewidth=0)
+                ax.fill_between(
+                    x[ok], (y - e)[ok], (y + e)[ok],
+                    alpha=band_alpha, color=color, linewidth=0, zorder=zo - 1,
+                )
 
-    # Reference lines
-    ax.axhline(0, color="black", linestyle="--", linewidth=1.0, alpha=0.75)
+    ax.axhline(0, color="0.35", linestyle=":", linewidth=0.9, alpha=0.85, zorder=1)
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.grid(True, axis="y")
+    ax.grid(True, axis="y", linestyle="-", linewidth=0.5, alpha=0.28)
     ax.grid(False, axis="x")
 
     unique_x = sorted(df["param_value"].dropna().unique())
-    MAX_TICKS = 15
     if unique_x and np.all(np.isfinite(unique_x)):
-        ticks = (unique_x if len(unique_x) <= MAX_TICKS
-                 else [unique_x[i] for i in
-                       np.linspace(0, len(unique_x) - 1, MAX_TICKS, dtype=int)])
-        ax.set_xticks(ticks)
-        if param_name in {"Xnoise", "mahalanobis_sep"}:
-            ax.xaxis.set_major_formatter(
-                mpl.ticker.FuncFormatter(lambda x, pos: _format_numeric_tick(x, 3))
-            )
+        # Integer sweeps (d, K): keep evenly spaced ticks (avoid linspace skipping
+        # e.g. 4,8,12 when capping at 15 labels on d=1..20).
+        if param_name in {"d", "K"}:
+            # Show every integer setting (d=1..20 / K=2..10 fit fine); avoids the
+            # old linspace subsample that skipped 4,8,12,... and looked uneven.
+            ticks = [int(v) for v in unique_x]
+            ax.set_xticks(ticks)
+            ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d"))
+            if len(ticks) >= 16:
+                ax.tick_params(axis="x", labelsize=8.5)
         else:
-            ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2g"))
+            MAX_TICKS = 15
+            ticks = (unique_x if len(unique_x) <= MAX_TICKS
+                     else [unique_x[i] for i in
+                           np.linspace(0, len(unique_x) - 1, MAX_TICKS, dtype=int)])
+            ax.set_xticks(ticks)
+            if param_name in {"Xnoise", "mahalanobis_sep"}:
+                ax.xaxis.set_major_formatter(
+                    mpl.ticker.FuncFormatter(lambda x, pos: _format_numeric_tick(x, 3))
+                )
+            else:
+                ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2g"))
 
     ymin, ymax = ax.get_ylim()
     if np.isfinite(ymin) and np.isfinite(ymax) and ymax > ymin:
-        pad = 0.06 * (ymax - ymin)
+        pad = 0.05 * (ymax - ymin)
         ax.set_ylim(ymin - pad, ymax + pad)
 
-    handles, labels_leg = ax.get_legend_handles_labels()
-    ncol = min(max(len(labels_leg), 1), 3)
-    fig.legend(handles, labels_leg, ncol=ncol, frameon=False,
+    proxy_handles, labels_leg = [], []
+    for algo in algos:
+        st = style_by_algo[algo]
+        proxy_handles.append(
+            mpl.lines.Line2D(
+                [0], [0],
+                color=st["color"],
+                linestyle=st["ls"],
+                linewidth=st["lw"],
+                marker="o",
+                markersize=5,
+                markeredgewidth=0.8,
+            )
+        )
+        labels_leg.append(st["label"])
+    ncol = 4 if len(labels_leg) >= 8 else min(max(len(labels_leg), 1), 3)
+    fig.legend(proxy_handles, labels_leg, ncol=ncol, frameon=False,
                loc="upper center", bbox_to_anchor=(AX_CENTER_X, LEGEND_Y),
-               columnspacing=1.2, handlelength=2.2, handletextpad=0.6)
+               columnspacing=1.0, handlelength=3.2, handletextpad=0.45,
+               fontsize=9.5)
 
     fig.savefig(out_base + ".pdf")
     fig.savefig(out_base + ".png")

@@ -4,7 +4,7 @@ Policy Tree individual-level policy recommendations via R's policytree package.
 Workflow (aligned with causal_forest / meta-learners):
 1. Fit a GRF forest on pilot data
 2. Compute doubly-robust scores (Gamma)
-3. Fit hybrid_policy_tree on (X, Gamma)  (exact lookahead of search.depth)
+3. Fit policy_tree on (X, Gamma)  (exact exhaustive tree search)
 4. Predict recommended action per implementation customer (type="action.id")
 
 NOTE: we do NOT use a numpy2ri localconverter block.  The numpy2ri converter
@@ -116,12 +116,12 @@ def _gamma_column_actions(gamma_r):
 
 
 def policy_tree_predict(
-    implement_customers, x_mat, D_vec, y_vec, depth=3, num_trees=500, search_depth=2,
+    implement_customers, x_mat, D_vec, y_vec, depth=2, num_trees=100,
 ):
     """
-    Fit a hybrid policy tree and recommend an action for each implementation customer.
+    Fit an exact policy tree and recommend an action for each implementation customer.
 
-    Uses policytree::hybrid_policy_tree (exact lookahead of search_depth < depth).
+    Uses policytree::policy_tree (exhaustive exact tree search).
 
     Returns
     -------
@@ -134,12 +134,12 @@ def policy_tree_predict(
     with _r_context():
         return _policy_tree_predict_locked(
             implement_customers, x_mat, D_vec, y_vec,
-            depth=depth, num_trees=num_trees, search_depth=search_depth,
+            depth=depth, num_trees=num_trees,
         )
 
 
 def _policy_tree_predict_locked(
-    implement_customers, x_mat, D_vec, y_vec, depth=3, num_trees=500, search_depth=2,
+    implement_customers, x_mat, D_vec, y_vec, depth=2, num_trees=100,
 ):
     _init_r()
 
@@ -163,7 +163,7 @@ def _policy_tree_predict_locked(
     n_train, n_impl = x_mat.shape[0], X_impl.shape[0]
     print(
         f"[policy_tree] start: n_train={n_train}, n_impl={n_impl}, "
-        f"d={x_mat.shape[1]}, depth={depth}, search_depth={search_depth}, "
+        f"d={x_mat.shape[1]}, depth={depth}, search=exact, "
         f"num_trees={num_trees}, actions={unique_actions.tolist()}",
         flush=True,
     )
@@ -194,20 +194,13 @@ def _policy_tree_predict_locked(
         flush=True,
     )
 
-    if int(search_depth) >= int(depth):
-        raise ValueError(
-            "hybrid_policy_tree requires search_depth < depth, "
-            f"got search_depth={search_depth}, depth={depth}."
-        )
     print(
-        f"[policy_tree] fitting hybrid_policy_tree"
-        f"(depth={depth}, search.depth={search_depth}) ...",
+        f"[policy_tree] fitting policy_tree (exact search, depth={depth}) ...",
         flush=True,
     )
-    tree = _policytree.hybrid_policy_tree(
+    tree = _policytree.policy_tree(
         X_r, gamma_r,
         depth=int(depth),
-        search_depth=int(search_depth),
         verbose=False,
     )
 

@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_sept_2026/discrete/varying_d/set_2_policy_tree_hybrid"
+SAVE_DIR="exp_oct_2026/discrete/varying_d/set_1_policy_tree_depth_2"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -27,15 +27,15 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying d
-for D in $(seq 16 1 20); do
+for D in $(seq 1 1 20); do
     D_TAG=$(printf "%02d" "$D")
 
     echo "🚀 Running experiment with d=${D} ..."
 
     OUTFILE="${SAVE_DIR}/exp_d_${D_TAG}.pkl"
     python3 main.py \
-        --target_p_range 0.01 0.15 \
-        --winner_p_range 0.15 0.3 \
+        --target_p_range 0.01 0.2 \
+        --winner_p_range 0.2 0.5 \
         --beta_range -0.1 0.1 \
         --delta_range -0.1 0.1 \
         --DR_generation_method lightgbm \

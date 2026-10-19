@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_sept_2026/discrete/varying_K/set2_policy_tree_hybrid"
+SAVE_DIR="exp_oct_2026/discrete/varying_K/set_2_policy_tree_depth_2"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -36,21 +36,21 @@ for K in $(seq 2 1 10); do
 
     # Discrete Bernoulli: P(Y=1)=sigmoid(alpha + beta@x + tau[D] + delta[D]@x)
     python3 main.py \
-        --target_p_range 0.05 0.2 \
+        --target_p_range 0.01 0.2 \
         --winner_p_range 0.2 0.5 \
-        --beta_range -0.05 0.05 \
-        --delta_range -0.05 0.05 \
-        --DR_generation_method lightgbm \
+        --beta_range -0.1 0.1 \
+        --delta_range -0.1 0.1 \
+        --DR_generation_method logistic \
         --kmeans_coef 0.1 \
         --x_mean_range -200 200 \
         --N_segment_size 100 \
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K "$K" \
-        --d 7 \
+        --d 6 \
         --partial_x 1 \
         --action_num 3 \
-        --N_sims 50 \
+        --N_sims 100 \
         --disallowed_ball_radius 0.2 \
         --cv_folds 5 \
         --action_method diff_in_means \

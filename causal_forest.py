@@ -21,7 +21,7 @@ from econml.dml import CausalForestDML
 
 
 def causal_forest_predict(implement_customers, x_mat, D_vec, y_vec, 
-                          n_estimators=4, n_estimators_nuisance=4, 
+                          n_estimators=8, n_estimators_nuisance=8, 
                           min_samples_leaf=10, max_depth=3):
     """
     Causal Forest implementation using econml's CausalForestDML.
@@ -47,9 +47,9 @@ def causal_forest_predict(implement_customers, x_mat, D_vec, y_vec,
         Action assignment vector from training data
     y_vec : array-like, shape (n_samples,)
         Outcome vector from training data
-    n_estimators : int, default=1000
+    n_estimators : int, default=8
         Number of trees in the causal forest (main effect estimation)
-    n_estimators_nuisance : int, default=100
+    n_estimators_nuisance : int, default=8
         Number of trees in nuisance models (outcome and propensity models)
     min_samples_leaf : int, default=5
         Minimum number of samples in leaf nodes

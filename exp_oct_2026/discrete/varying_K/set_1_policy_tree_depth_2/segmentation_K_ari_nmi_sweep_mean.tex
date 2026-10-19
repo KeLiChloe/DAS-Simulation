@@ -1,0 +1,16 @@
+\begin{table}[htbp]
+\centering
+\caption{How well each method recovers the true customer groups on the pilot data when we vary the number of groups $K$. Numbers are ARI and NMI, averaged over $K=2,\ldots,10$ and over simulation replications. Higher is better.}
+\label{tab:app-ari-nmi-varying-K-avg}
+\begin{tabular}{lcc}
+\toprule
+Method & ARI & NMI \\
+\midrule
+K-Means & 0.694 & 0.778 \\
+CLR & 0.691 & 0.771 \\
+GMM & 0.594 & 0.727 \\
+MST & 0.243 & 0.391 \\
+DAS & 0.163 & 0.311 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -272,9 +272,11 @@ def parse_args():
     parser.add_argument("--kmeans_coef", type=float, help="Coefficient for k-means weighting")
 
     parser.add_argument("--DR_generation_method", type=str,
-                        choices=["reg", "mlp", "lightgbm", "random_forest", "xgboost"],
-                        help="DR generation method. 'reg': logistic regression. 'mlp': neural network. "
-                             "'lightgbm': LightGBM. 'random_forest': sklearn RandomForest. 'xgboost': XGBoost.")
+                        choices=["logistic", "reg", "mlp", "lightgbm", "random_forest", "xgboost"],
+                        help="DR outcome model for Gamma scores. "
+                             "'logistic': logistic regression (alias: 'reg'). "
+                             "'mlp': neural net. 'lightgbm': LightGBM. "
+                             "'random_forest': sklearn RF. 'xgboost': XGBoost.")
     
     # default is True
     parser.add_argument("--use_hybrid_method", type=lambda x: str(x).lower() == 'true', 

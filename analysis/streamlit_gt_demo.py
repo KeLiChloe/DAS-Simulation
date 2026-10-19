@@ -140,7 +140,7 @@ def build_population(params: dict[str, Any]) -> PopulationSimulator:
     N_pilot = params["N_segment_size"] * params["K"]
     scale = float(params.get("implementation_scale", 2.0))
     N_impl = max(10, int(N_pilot * scale))
-    dr_method = str(params.get("DR_generation_method", "reg"))
+    dr_method = str(params.get("DR_generation_method", "logistic"))
     noise_mode = str(params.get("noise_mode", "mahalanobis"))
     kw: dict[str, Any] = dict(
         N_total_pilot_customers=N_pilot,
@@ -744,7 +744,7 @@ def render_algo_panel() -> dict[str, Any]:
     )
     DR_generation_method = st.selectbox(
         "DR_generation_method",
-        options=["reg", "mlp", "lightgbm", "random_forest", "xgboost"],
+        options=["logistic", "mlp", "lightgbm", "random_forest", "xgboost"],
         key="DR_generation_method",
         bind="query-params",
     )
