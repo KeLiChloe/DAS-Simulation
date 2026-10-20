@@ -66,13 +66,15 @@ def _style_for(algo: str) -> dict:
         return dict(
             color=DAST_COLOR,
             label=LABEL_MAP.get("dast", "DAS"),
-            lw=2.6,
+            lw=1.8,
+            ls="--",
             zo=6,
         )
     return dict(
         color=DEFAULT_COLORS.get(key, "#555555AF"),
         label=LABEL_MAP.get(key, algo),
         lw=2.0,
+        ls="-",
         zo=3,
     )
 
@@ -432,7 +434,7 @@ def plot_ari_nmi(
                 x, y,
                 marker="o", markersize=5.5,
                 color=st["color"], label=st["label"],
-                linewidth=st["lw"], linestyle="-",
+                linewidth=st["lw"], linestyle=st["ls"],
                 markeredgewidth=0.8, zorder=st["zo"],
             )
             if show_band and se_col in sub.columns:
@@ -481,7 +483,7 @@ def plot_ari_nmi(
         proxy_handles.append(
             mpl.lines.Line2D(
                 [0], [0],
-                color=st["color"], linestyle="-", linewidth=st["lw"],
+                color=st["color"], linestyle=st["ls"], linewidth=st["lw"],
                 marker="o", markersize=5, markeredgewidth=0.8,
             )
         )
