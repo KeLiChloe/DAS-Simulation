@@ -2,24 +2,50 @@
 \centering
 \caption{Segmentation recovery on the pilot sample under varying number of latent segments. Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments.}
 \label{tab:app-ari-nmi-varying-K}
-\begin{tabular}{llccccccccc}
+\begin{tabular}{llcccccccc}
 \toprule
-Method & Metric & $K=2$ & $K=3$ & $K=4$ & $K=5$ & $K=6$ & $K=7$ & $K=8$ & $K=9$ & $K=10$ \\
+Method & Metric & $K=2$ & $K=3$ & $K=4$ & $K=5$ & $K=6$ & $K=7$ & $K=8$ & $K=9$ \\
 \midrule
-DAS & ARI & 0.187 & 0.200 & 0.203 & 0.178 & 0.155 & 0.148 & 0.133 & 0.133 & 0.129 \\
- & NMI & 0.241 & 0.292 & 0.325 & 0.321 & 0.315 & 0.323 & 0.321 & 0.325 & 0.335 \\
+DAS & ARI & 0.187 & 0.200 & 0.203 & 0.178 & 0.155 & 0.148 & 0.133 & 0.133 \\
+ & NMI & 0.241 & 0.292 & 0.325 & 0.321 & 0.315 & 0.323 & 0.321 & 0.325 \\
 \addlinespace
-K-Means & ARI & 0.973 & 0.726 & 0.650 & 0.595 & 0.660 & 0.669 & 0.661 & 0.662 & 0.651 \\
- & NMI & 0.948 & 0.794 & 0.740 & 0.712 & 0.758 & 0.767 & 0.763 & 0.761 & 0.754 \\
+K-Means & ARI & 0.973 & 0.726 & 0.650 & 0.595 & 0.660 & 0.669 & 0.661 & 0.662 \\
+ & NMI & 0.948 & 0.794 & 0.740 & 0.712 & 0.758 & 0.767 & 0.763 & 0.761 \\
 \addlinespace
-MST & ARI & 0.484 & 0.342 & 0.267 & 0.227 & 0.206 & 0.187 & 0.155 & 0.156 & 0.162 \\
- & NMI & 0.510 & 0.434 & 0.400 & 0.370 & 0.373 & 0.366 & 0.346 & 0.354 & 0.367 \\
+MST & ARI & 0.484 & 0.342 & 0.267 & 0.227 & 0.206 & 0.187 & 0.155 & 0.156 \\
+ & NMI & 0.510 & 0.434 & 0.400 & 0.370 & 0.373 & 0.366 & 0.346 & 0.354 \\
 \addlinespace
-GMM & ARI & 0.965 & 0.566 & 0.532 & 0.513 & 0.505 & 0.544 & 0.561 & 0.576 & 0.584 \\
- & NMI & 0.936 & 0.700 & 0.673 & 0.671 & 0.677 & 0.708 & 0.723 & 0.727 & 0.731 \\
+GMM & ARI & 0.965 & 0.566 & 0.532 & 0.513 & 0.505 & 0.544 & 0.561 & 0.576 \\
+ & NMI & 0.936 & 0.700 & 0.673 & 0.671 & 0.677 & 0.708 & 0.723 & 0.727 \\
 \addlinespace
-CLR & ARI & 0.973 & 0.834 & 0.727 & 0.621 & 0.640 & 0.614 & 0.610 & 0.601 & 0.602 \\
- & NMI & 0.950 & 0.847 & 0.785 & 0.711 & 0.740 & 0.730 & 0.730 & 0.722 & 0.725 \\
+CLR & ARI & 0.973 & 0.834 & 0.727 & 0.621 & 0.640 & 0.614 & 0.610 & 0.601 \\
+ & NMI & 0.950 & 0.847 & 0.785 & 0.711 & 0.740 & 0.730 & 0.730 & 0.722 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying number of latent segments. Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments. Continued.}
+\label{tab:app-ari-nmi-varying-K-cont}
+\begin{tabular}{llc}
+\toprule
+Method & Metric & $K=10$ \\
+\midrule
+DAS & ARI & 0.129 \\
+ & NMI & 0.335 \\
+\addlinespace
+K-Means & ARI & 0.651 \\
+ & NMI & 0.754 \\
+\addlinespace
+MST & ARI & 0.162 \\
+ & NMI & 0.367 \\
+\addlinespace
+GMM & ARI & 0.584 \\
+ & NMI & 0.731 \\
+\addlinespace
+CLR & ARI & 0.602 \\
+ & NMI & 0.725 \\
 \bottomrule
 \end{tabular}
 \end{table}

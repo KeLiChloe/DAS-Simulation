@@ -10,17 +10,10 @@ Scans experiment pkls, builds one CSV with three metrics, and plots figures:
   relative_oracle (dast - comp) / (oracle - comp)  [requires oracle_profits_impl in pkl]
   regret          (oracle - algo) / oracle         [requires oracle_profits_impl in pkl]
 
-Usage (build + plot in one step):
-  python analysis/plot_trends_auto.py build-csv \\
-      --dir exp_feb_2026/discrete/varying_d_set8
-  # -> <dir>/curves.csv
-  # -> <dir>/curves_relative_comp.pdf/.png
-  # -> <dir>/curves_relative_oracle.pdf/.png
-  # -> <dir>/curves_regret.pdf/.png
+Preferred (always refresh CSV from pkls, then plot):
+  python analysis/plot_trends_auto.py build-csv --dir <exp_dir> --show_band
 
-Re-plot from an existing CSV only:
-  python analysis/plot_trends_auto.py plot-csv \\
-      --csv exp_feb_2026/discrete/varying_d_set8/curves.csv
+plot-csv is for rare styling-only replot and requires --allow-stale-csv.
 """
 
 import os
@@ -279,7 +272,8 @@ def summarize_ratios(filtered_ratios):
             out[key] = (mu, np.nan, n)
         else:
             se    = float(stats.sem(pct, nan_policy="omit"))
-            tcrit = float(stats.t.ppf(0.95, n - 1))
+            # Two-sided 95% CI half-width
+            tcrit = float(stats.t.ppf(0.975, n - 1))
             out[key] = (mu, se * tcrit, n)
     return out
 
@@ -556,11 +550,19 @@ def main():
     p1.add_argument("--no_plot",      action="store_true",
                     help="Only write CSV; skip plotting.")
 
-    p2 = sub.add_parser("plot-csv", help="Re-plot from an existing CSV.")
+    p2 = sub.add_parser(
+        "plot-csv",
+        help="Re-plot from an existing CSV (stale; requires --allow-stale-csv).",
+    )
     p2.add_argument("--csv",       required=True)
     p2.add_argument("--out_fig",   default=None,
                     help="Figure stem (default: same as --csv with .pdf)")
     p2.add_argument("--show_band", action="store_true")
+    p2.add_argument(
+        "--allow-stale-csv",
+        action="store_true",
+        help="Confirm you intentionally skip refreshing from pkls.",
+    )
 
     args = parser.parse_args()
 
@@ -592,6 +594,12 @@ def main():
                 print(f"[OK] Saved plot -> {path}")
 
     elif args.cmd == "plot-csv":
+        if not args.allow_stale_csv:
+            raise SystemExit(
+                "plot-csv would reuse a possibly stale CSV.\n"
+                "Prefer:  python3 analysis/plot_trends_auto.py build-csv --dir <exp_dir>\n"
+                "Override only if intentional: add --allow-stale-csv"
+            )
         out_fig = args.out_fig or default_out_fig(args.csv)
         saved = plot_from_csv(
             csv_path=args.csv,
