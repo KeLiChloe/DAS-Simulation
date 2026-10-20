@@ -1,6 +1,5 @@
 figures
 __pycache__
-*.pkl
 exp_april_*/
 .DS_Store
 .tiger/
