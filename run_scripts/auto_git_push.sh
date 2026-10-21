@@ -7,9 +7,9 @@
 #   # one-shot
 #   bash run_scripts/auto_git_push.sh once
 #
-#   # every 2 hours in background (valid through 2026-11-10)
+#   # every 6 hours in background (valid through 2026-11-10)
 #   mkdir -p logs
-#   nohup bash run_scripts/auto_git_push.sh loop 7200 \
+#   nohup bash run_scripts/auto_git_push.sh loop 21600 \
 #     >> logs/auto_git_push.log 2>&1 &
 #
 #   # or under tmux (survives SSH better than bare nohup):
@@ -17,7 +17,7 @@
 #   bash run_scripts/auto_git_push.sh loop
 #
 # Env overrides:
-#   AUTO_GIT_INTERVAL_SEC   default 7200 = 2h (loop only)
+#   AUTO_GIT_INTERVAL_SEC   default 21600 = 6h (loop only)
 #   AUTO_GIT_EXPIRES         default 2026-11-10 (inclusive; YYYY-MM-DD)
 #   AUTO_GIT_REMOTE          default origin
 #   AUTO_GIT_BRANCH          default current branch
@@ -36,7 +36,7 @@ cd "$ROOT"
 SCRIPT="$ROOT/run_scripts/auto_git_push.sh"
 
 MODE="${1:-once}"          # once | loop
-INTERVAL="${2:-${AUTO_GIT_INTERVAL_SEC:-7200}}"
+INTERVAL="${2:-${AUTO_GIT_INTERVAL_SEC:-21600}}"
 REMOTE="${AUTO_GIT_REMOTE:-origin}"
 BRANCH="${AUTO_GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 DRY_RUN="${AUTO_GIT_DRY_RUN:-0}"
