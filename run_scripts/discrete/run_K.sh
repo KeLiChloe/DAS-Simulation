@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_oct_2026/discrete/varying_K/set_3_policy_tree_depth_2"
+SAVE_DIR="exp_oct_2026/discrete/varying_K/set_4"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -27,7 +27,7 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying K
-for K in $(seq 5 1 10); do
+for K in $(seq 2 1 10); do
     K_TAG=$(printf "%02d" "$K")
 
     echo "🚀 Running experiment with K=${K} ..."
@@ -50,9 +50,9 @@ for K in $(seq 5 1 10); do
         --d 5 \
         --partial_x 1 \
         --action_num 3 \
-        --N_sims 50 \
+        --N_sims 100 \
         --disallowed_ball_radius 0.2 \
-        --cv_folds 5 \
+        --cv_folds 4 \
         --action_method diff_in_means \
         --save_file "$OUTFILE" \
         --sequence_seed 888 \

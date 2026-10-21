@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_oct_2026/discrete/varying_d/set_1_policy_tree_depth_2"
+SAVE_DIR="exp_oct_2026/discrete/varying_d/set_2"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -34,14 +34,14 @@ for D in $(seq 1 1 20); do
 
     OUTFILE="${SAVE_DIR}/exp_d_${D_TAG}.pkl"
     python3 main.py \
-        --target_p_range 0.01 0.2 \
-        --winner_p_range 0.2 0.5 \
+        --target_p_range 0.001 0.01 \
+        --winner_p_range 0.01 0.02 \
         --beta_range -0.1 0.1 \
-        --delta_range -0.1 0.1 \
+        --delta_range -0.08 0.08 \
         --DR_generation_method lightgbm \
         --kmeans_coef 0.1 \
         --x_mean_range -50 50 \
-        --N_segment_size 100 \
+        --N_segment_size 1000 \
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K 5 \
@@ -50,7 +50,7 @@ for D in $(seq 1 1 20); do
         --action_num 3 \
         --N_sims 100 \
         --disallowed_ball_radius 0.2 \
-        --cv_folds 5 \
+        --cv_folds 4 \
         --action_method diff_in_means \
         --save_file "$OUTFILE" \
         --sequence_seed 999 \
