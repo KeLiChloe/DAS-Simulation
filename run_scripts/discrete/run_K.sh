@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_oct_2026/discrete/varying_K/set_2_policy_tree_depth_2"
+SAVE_DIR="exp_oct_2026/discrete/varying_K/set_3_policy_tree_depth_2"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -27,30 +27,30 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying K
-for K in $(seq 2 1 10); do
+for K in $(seq 5 1 10); do
     K_TAG=$(printf "%02d" "$K")
 
     echo "🚀 Running experiment with K=${K} ..."
 
     OUTFILE="${SAVE_DIR}/exp_K_${K_TAG}_oracle.pkl"
 
-    # Discrete Bernoulli: P(Y=1)=sigmoid(alpha + beta@x + tau[D] + delta[D]@x)
+    # Discrete Bernoulli: P(Y=1)=sigmoid(alpha + beta@x + tau[D])
     python3 main.py \
-        --target_p_range 0.01 0.2 \
-        --winner_p_range 0.2 0.5 \
+        --target_p_range 0.001 0.01 \
+        --winner_p_range 0.01 0.02 \
         --beta_range -0.1 0.1 \
-        --delta_range -0.1 0.1 \
-        --DR_generation_method logistic \
+        --delta_range -0.08 0.08 \
+        --DR_generation_method lightgbm \
         --kmeans_coef 0.1 \
-        --x_mean_range -200 200 \
-        --N_segment_size 100 \
+        --x_mean_range -50 50 \
+        --N_segment_size 1000 \
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K "$K" \
-        --d 6 \
+        --d 5 \
         --partial_x 1 \
         --action_num 3 \
-        --N_sims 100 \
+        --N_sims 50 \
         --disallowed_ball_radius 0.2 \
         --cv_folds 5 \
         --action_method diff_in_means \

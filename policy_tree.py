@@ -126,10 +126,15 @@ def policy_tree_predict(
     Returns
     -------
     recommended_idx : ndarray, shape (n_impl,)
-        0-based index into action_identity for each customer.
+        0-based index into action_identity for each implementation customer.
     action_identity : ndarray, shape (n_actions,)
         action_identity[j] = actual treatment label for Gamma column j+1.
         main.py: act_id[recommended_idx[i]]
+    train_leaf_ids : ndarray, shape (n_train,)
+        Contiguous 0..L-1 leaf ids for each training (pilot) row of x_mat
+        (from predict(..., type="node.id"), remapped).
+    train_action_idx : ndarray, shape (n_train,)
+        0-based Gamma-column index of the recommended action on the training set.
     """
     with _r_context():
         return _policy_tree_predict_locked(
@@ -204,6 +209,15 @@ def _policy_tree_predict_locked(
         verbose=False,
     )
 
+    # Leaf assignment + actions on the training (pilot) matrix — for ARI / policy metrics
+    node_r = _policytree.predict_policy_tree(tree, X_r, type="node.id")
+    raw_nodes = np.asarray(list(node_r), dtype=int)
+    _, train_leaf_ids = np.unique(raw_nodes, return_inverse=True)
+    train_leaf_ids = train_leaf_ids.astype(int)
+
+    train_action_r = _policytree.predict_policy_tree(tree, X_r, type="action.id")
+    train_action_idx = np.asarray(list(train_action_r), dtype=int) - 1
+
     print("[policy_tree] predicting on implementation set ...", flush=True)
     action_r = _policytree.predict_policy_tree(tree, X_impl_r, type="action.id")
     action_ids_raw = np.array(list(action_r), dtype=int)   # 1-based column index
@@ -217,13 +231,25 @@ def _policy_tree_predict_locked(
             f"R action.id out of range [1, {n_cols}]; "
             f"got [{action_ids_raw.min()}, {action_ids_raw.max()}]"
         )
+    if train_action_idx.min() < 0 or train_action_idx.max() >= n_cols:
+        raise ValueError(
+            f"R train action.id out of range [1, {n_cols}]; "
+            f"got [{train_action_idx.min()+1}, {train_action_idx.max()+1}]"
+        )
 
     recommended_actions = action_identity[recommended_idx]
     unique_rec, counts = np.unique(recommended_actions, return_counts=True)
     dist = ", ".join(f"a={a}:{c}" for a, c in zip(unique_rec, counts))
+    n_leaves = int(train_leaf_ids.max()) + 1 if len(train_leaf_ids) else 0
     print(
-        f"[policy_tree] done: recommended actions {{{dist}}}",
+        f"[policy_tree] done: n_leaves={n_leaves}, "
+        f"recommended actions {{{dist}}}",
         flush=True,
     )
 
-    return recommended_idx.astype(int), action_identity
+    return (
+        recommended_idx.astype(int),
+        action_identity,
+        train_leaf_ids,
+        train_action_idx.astype(int),
+    )

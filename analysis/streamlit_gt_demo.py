@@ -429,14 +429,19 @@ def build_algo_figure(
     algo: str,
     height: int = 380,
 ) -> go.Figure:
-    X = np.asarray(algo_result.get("X", bundle["X"]), dtype=float)
-    xlim, ylim = _axis_limits(X)
-    # Align GT axes when plotting pilot
-    if X.shape == bundle["X"].shape:
-        xlim, ylim = _axis_limits(bundle["X"])
-    fig = go.Figure()
     labels = np.asarray(algo_result["labels"], dtype=int)
     actions = np.asarray(algo_result["actions"], dtype=int)
+    if "X" in algo_result:
+        X = np.asarray(algo_result["X"], dtype=float)
+    else:
+        X = np.asarray(bundle["X"], dtype=float)
+    if len(X) != len(labels):
+        raise ValueError(
+            f"{algo}: plot X length {len(X)} != labels length {len(labels)}. "
+            "Re-run algorithms after changing DGP params."
+        )
+    xlim, ylim = _axis_limits(bundle["X"])
+    fig = go.Figure()
     action_num = bundle["action_num"]
     actions_plot = actions.copy()
     actions_plot[actions_plot == 404] = action_num
@@ -515,9 +520,12 @@ def fit_seg_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
         oracle_profit_on_customers(pop.implement_customers, signal_d=pop.signal_d)
     )
 
+    # X must come from the same pop/order as labels (never reuse GT-bundle X).
+    X_plot = np.asarray([c.x for c in pop.train_customers], dtype=float)
     return {
         "algo": algo,
         "is_meta": False,
+        "X": X_plot,
         "labels": labels,
         "actions": actions,
         "picked_M": int(result["picked_M"]),
@@ -545,13 +553,56 @@ def fit_meta_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
     n_pilot = len(pop.pilot_customers)
     customers_all = list(pop.pilot_customers) + list(pop.implement_customers)
     with _silence_stdout():
-        labels_all, act_id = fn(customers_all, x_mat, D_vec, y_vec)
+        ret = fn(customers_all, x_mat, D_vec, y_vec)
 
-    act_id = np.asarray(act_id, dtype=int)
-    labels_all = np.asarray(labels_all, dtype=int)
-    labels_pilot = labels_all[:n_pilot]
-    labels_impl = labels_all[n_pilot:]
-    actions_pilot = act_id[labels_pilot]
+    # policy_tree returns (impl_idx, act_id, train_leaf_ids, train_action_idx);
+    # other meta-learners return (labels_all, act_id).
+    ari = nmi = regret = mist = None
+    picked_M = None
+    if algo == "policy_tree" and len(ret) >= 4:
+        labels_impl_idx, act_id, train_leaf_ids, train_action_idx = ret[:4]
+        act_id = np.asarray(act_id, dtype=int)
+        labels_impl_idx = np.asarray(labels_impl_idx, dtype=int)
+        train_leaf_ids = np.asarray(train_leaf_ids, dtype=int)
+        train_action_idx = np.asarray(train_action_idx, dtype=int)
+        # customers_all = pilot + implement; predict was on that combined set
+        # for actions on implement, but leaves are only defined on train x_mat
+        # (pilot). Use leaf ids for pilot viz / ARI.
+        labels_pilot = train_leaf_ids
+        actions_pilot = act_id[train_action_idx]
+        n_impl = len(pop.implement_customers)
+        labels_impl = labels_impl_idx[-n_impl:]
+        from ground_truth import SegmentEstimate
+        from oracle import structure_oracle, policy_oracle
+
+        n_leaves = int(train_leaf_ids.max()) + 1 if len(train_leaf_ids) else 0
+        leaf_action = {
+            leaf: int(np.bincount(act_id[train_action_idx[train_leaf_ids == leaf]]).argmax())
+            for leaf in range(n_leaves)
+        }
+        pop.est_segments_list["policy_tree"] = [
+            SegmentEstimate(0.0, leaf_action[leaf], segment_id=leaf)
+            for leaf in range(n_leaves)
+        ]
+        for j, cust in enumerate(pop.train_customers):
+            cust.est_segment["policy_tree"] = pop.est_segments_list["policy_tree"][
+                int(train_leaf_ids[j])
+            ]
+        true_ids = np.array(
+            [c.true_segment.segment_id for c in pop.train_customers], dtype=int
+        )
+        S = structure_oracle(true_ids, train_leaf_ids)
+        P = policy_oracle(pop.train_customers, algo="policy_tree", signal_d=pop.signal_d)
+        ari, nmi = float(S["ARI"]), float(S["NMI"])
+        regret, mist = float(P["regret"]), float(P["mistreatment_rate"])
+        picked_M = n_leaves
+    else:
+        labels_all, act_id = ret[0], ret[1]
+        act_id = np.asarray(act_id, dtype=int)
+        labels_all = np.asarray(labels_all, dtype=int)
+        labels_pilot = labels_all[:n_pilot]
+        labels_impl = labels_all[n_pilot:]
+        actions_pilot = act_id[labels_pilot]
 
     impl_profit = 0.0
     for i, cust in enumerate(pop.implement_customers):
@@ -562,14 +613,18 @@ def fit_meta_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
         oracle_profit_on_customers(pop.implement_customers, signal_d=pop.signal_d)
     )
 
+    X_plot = np.asarray([c.x for c in pop.pilot_customers], dtype=float)
     return {
         "algo": algo,
         "is_meta": True,
+        "X": X_plot,
         "labels": labels_pilot,
         "actions": actions_pilot,
-        "picked_M": None,
-        "ARI": None,
-        "regret": None,
+        "picked_M": picked_M,
+        "ARI": ari,
+        "NMI": nmi,
+        "regret": regret,
+        "mistreatment_rate": mist,
         "implementation_profits": float(impl_profit),
         "oracle_profits_impl": oracle_impl,
         "N_impl": int(len(pop.implement_customers)),
@@ -602,7 +657,7 @@ def render_dgp_sidebar() -> dict[str, Any]:
     N_segment_size = st.sidebar.slider(
         "N_per_segment",
         min_value=20,
-        max_value=500,
+        max_value=10000,
         value=80,
         step=10,
         key="N_per_segment",
@@ -666,16 +721,16 @@ def render_dgp_sidebar() -> dict[str, Any]:
         )
 
     t_lo, t_hi = st.sidebar.slider(
-        "target_p", 0.02, 0.45, (0.10, 0.25), step=0.01,
+        "target_p", 0.001, 0.02, (0.001, 0.02), step=0.001,
         key="target_p", bind="query-params",
     )
     use_winner = st.sidebar.checkbox(
         "use_winner_p", value=True, key="use_winner_p", bind="query-params",
     )
-    w_lo, w_hi = 0.40, 0.60
+    w_lo, w_hi = 0.001, 0.02
     if use_winner:
         w_lo, w_hi = st.sidebar.slider(
-            "winner_p", 0.15, 0.85, (0.40, 0.60), step=0.01,
+            "winner_p", 0.001, 0.02, (0.001, 0.02), step=0.001,
             key="winner_p", bind="query-params",
         )
 
@@ -870,7 +925,9 @@ def main() -> None:
             and bool(st.session_state.algo_results)
         )
         if stale:
-            st.warning("stale — re-Run")
+            st.warning("Params changed — click Run again (old algo plots cleared).")
+            st.session_state.algo_results = {}
+            st.session_state.algo_fp = None
 
         results = st.session_state.algo_results
         ordered = [a for a in params["checked_algos"] if a in results]

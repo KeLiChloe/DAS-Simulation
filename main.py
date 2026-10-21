@@ -1,4 +1,4 @@
-from ground_truth import PopulationSimulator
+from ground_truth import PopulationSimulator, SegmentEstimate
 from plot import plot_ground_truth, plot_segmentation, plot_bernoulli_prob_histogram
 from gmm import GMM_segment_and_estimate
 from oracle import structure_oracle, policy_oracle, oracle_profit_on_customers
@@ -329,8 +329,47 @@ def _run_one_sim(packed_args):
                         pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
                 elif algo == "policy_tree":
                     from policy_tree import policy_tree_predict
-                    meta_labels, act_id = policy_tree_predict(
-                        pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
+                    meta_labels, act_id, train_leaf_ids, train_action_idx = (
+                        policy_tree_predict(
+                            pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr
+                        )
+                    )
+                    # Attach leaf segments on pilot so ARI / policy_oracle match
+                    # other segmentation methods (leaf id ≈ estimated segment).
+                    act_id = np.asarray(act_id, dtype=int)
+                    train_leaf_ids = np.asarray(train_leaf_ids, dtype=int)
+                    train_action_idx = np.asarray(train_action_idx, dtype=int)
+                    n_leaves = int(train_leaf_ids.max()) + 1 if len(train_leaf_ids) else 0
+                    leaf_action = {}
+                    for leaf in range(n_leaves):
+                        cols = train_action_idx[train_leaf_ids == leaf]
+                        # Policy tree leaves are constant-action; mode is a safeguard.
+                        leaf_action[leaf] = int(np.bincount(act_id[cols]).argmax())
+                    pop.est_segments_list["policy_tree"] = [
+                        SegmentEstimate(0.0, leaf_action[leaf], segment_id=leaf)
+                        for leaf in range(n_leaves)
+                    ]
+                    for j, cust in enumerate(pop.train_customers):
+                        cust.est_segment["policy_tree"] = (
+                            pop.est_segments_list["policy_tree"][int(train_leaf_ids[j])]
+                        )
+                    S = structure_oracle(
+                        all_true_seg_ids[split10["train_indices"]], train_leaf_ids
+                    )
+                    P = policy_oracle(
+                        pop.train_customers, algo="policy_tree", signal_d=pop.signal_d
+                    )
+                    algo_result_dict[algo]["ARI"] = S["ARI"]
+                    algo_result_dict[algo]["NMI"] = S["NMI"]
+                    algo_result_dict[algo]["regret"] = P["regret"]
+                    algo_result_dict[algo]["mistreatment_rate"] = P["mistreatment_rate"]
+                    algo_result_dict[algo]["profit_at_manager_picked_M"] = P[
+                        "manager_profit"
+                    ]
+                    algo_result_dict[algo]["picked_M"] = {
+                        "policy_tree_picked_M": n_leaves,
+                        "policy_tree_n_leaves": n_leaves,
+                    }
                 elif algo == "dr_learner":
                     meta_labels, act_id = DR_learner(
                         pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr)
@@ -496,7 +535,9 @@ def main(args, param_range):
         random.seed(seq_seed)
     print(f"Using fixed sequence seed: {seq_seed}")
 
-    seeds = [random.randint(0, 100000) for _ in range(args.N_sims)]
+    n_target = int(args.N_sims)
+    # Cap retries so a pathological setting cannot spin forever.
+    max_attempts = max(10 * n_target, n_target + 50)
 
     exp_result_dict = {
         "exp_params": {
@@ -519,7 +560,7 @@ def main(args, param_range):
             "cv_folds":                cv_folds,
             "action_method":           getattr(args, 'action_method', None),
             "use_hybrid_method":       bool(getattr(args, 'use_hybrid_method', True)),
-            "N_sims":                  int(args.N_sims),
+            "N_sims":                  n_target,
             "n_workers":               1,
             "algorithms":              list(args.algorithms),
             "save_file":               getattr(args, 'save_file', None),
@@ -532,32 +573,56 @@ def main(args, param_range):
 
     if getattr(args, 'n_workers', None) not in (None, 1):
         print(f"Note: --n_workers={args.n_workers} ignored; simulations always run sequentially.")
-    print(f"Running {args.N_sims} simulations sequentially.")
-
-    # quiet=False keeps per-sim logs visible (no worker processes to interleave).
-    packed = [(args, param_range, seed, i, False) for i, seed in enumerate(seeds)]
+    print(
+        f"Running until {n_target} successful simulations "
+        f"(failed sims are retried with a new seed; max_attempts={max_attempts})."
+    )
 
     start_time = time.time()
-    for res in tqdm(map(_run_one_sim, packed), total=args.N_sims, desc="Simulations"):
-        if res is None:
-            continue
+    n_failed = 0
+    n_attempts = 0
+    # quiet=False keeps per-sim logs visible (no worker processes to interleave).
+    with tqdm(total=n_target, desc="Simulations") as pbar:
+        while len(exp_result_dict['seed']) < n_target:
+            if n_attempts >= max_attempts:
+                raise RuntimeError(
+                    f"Only {len(exp_result_dict['seed'])}/{n_target} successful sims "
+                    f"after {n_attempts} attempts ({n_failed} failed). "
+                    f"Check DGP / learner failures (e.g. single-class outcomes)."
+                )
+            seed = random.randint(0, 100000)
+            sim_idx = len(exp_result_dict['seed'])
+            n_attempts += 1
+            res = _run_one_sim((args, param_range, seed, sim_idx, False))
+            if res is None:
+                n_failed += 1
+                tqdm.write(
+                    f"[retry] sim {sim_idx} failed "
+                    f"(attempt {n_attempts}, failed so far {n_failed}); drawing new seed."
+                )
+                continue
 
-        tqdm.write(res['summary'])
+            tqdm.write(res['summary'])
 
-        exp_result_dict['seed'].append(res['seed'])
-        exp_result_dict['oracle_profits_impl'].append(res['oracle_profits_impl'])
-        exp_result_dict['covariate_overlap'].append(res['covariate_overlap'])
-        for algo in args.algorithms:
-            if algo in res['algo_result_dict']:
-                exp_result_dict[algo].append(res['algo_result_dict'][algo])
+            exp_result_dict['seed'].append(res['seed'])
+            exp_result_dict['oracle_profits_impl'].append(res['oracle_profits_impl'])
+            exp_result_dict['covariate_overlap'].append(res['covariate_overlap'])
+            for algo in args.algorithms:
+                if algo in res['algo_result_dict']:
+                    exp_result_dict[algo].append(res['algo_result_dict'][algo])
 
-        if args.save_file is not None:
-            with open(args.save_file, "wb") as f:
-                tqdm.write(f"Checkpoint saved → {args.save_file}")
-                pickle.dump(exp_result_dict, f)
+            if args.save_file is not None:
+                with open(args.save_file, "wb") as f:
+                    tqdm.write(f"Checkpoint saved → {args.save_file}")
+                    pickle.dump(exp_result_dict, f)
+
+            pbar.update(1)
 
     end_time = time.time()
-    print(f"Total time taken: {end_time - start_time:.2f} seconds.")
+    print(
+        f"Total time taken: {end_time - start_time:.2f} seconds "
+        f"({n_target} saved, {n_failed} failed/retried, {n_attempts} attempts)."
+    )
 
 
 if __name__ == "__main__":

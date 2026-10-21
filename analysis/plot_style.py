@@ -31,6 +31,7 @@ DEFAULT_REMOVE_EXTREME = {
     "dr_learner":      True,
     "s_learner":       True,
     "policy_tree":     True,
+    "causal_forest":   True,
 }
 
 # ------------------------------------------------------------------

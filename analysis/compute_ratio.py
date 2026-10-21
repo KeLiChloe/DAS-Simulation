@@ -135,16 +135,16 @@ def filter_ratios(improvement_ratios, apply_remove_extreme, apply_sigma_clip):
     for comp, ratios in improvement_ratios.items():
         ratios_np = np.array(ratios)
 
-        if apply_remove_extreme.get(comp, False):
-            min_indices = np.argsort(ratios_np)[:3]
-            mask = np.ones_like(ratios_np, dtype=bool)
-            mask[min_indices] = False
-            ratios_np = ratios_np[mask]
+        # if apply_remove_extreme.get(comp, False):
+        #     min_indices = np.argsort(ratios_np)[:3]
+        #     mask = np.ones_like(ratios_np, dtype=bool)
+        #     mask[min_indices] = False
+        #     ratios_np = ratios_np[mask]
 
-            max_indices = np.argsort(ratios_np)[-3:]
-            mask = np.ones_like(ratios_np, dtype=bool)
-            mask[max_indices] = False
-            ratios_np = ratios_np[mask]
+        #     max_indices = np.argsort(ratios_np)[-3:]
+        #     mask = np.ones_like(ratios_np, dtype=bool)
+        #     mask[max_indices] = False
+        #     ratios_np = ratios_np[mask]
 
         if apply_sigma_clip:
             mean = np.mean(ratios_np)

@@ -42,6 +42,7 @@ _SEG_KEYS = [
     "mst",
     "gmm-standard",
     "clr-standard",
+    "policy_tree",
 ]
 
 _KEY_TO_DISPLAY = {
@@ -50,14 +51,15 @@ _KEY_TO_DISPLAY = {
     "mst": "MST",
     "gmm-standard": "GMM",
     "clr-standard": "CLR",
+    "policy_tree": "Policy Tree",
 }
 
-_DISPLAY_ORDER = ["DAS", "K-Means", "MST", "GMM", "CLR"]
+_DISPLAY_ORDER = ["DAS", "Policy Tree", "K-Means", "MST", "GMM", "CLR"]
 
 _ALGO_TO_KEY = {v: k for k, v in _KEY_TO_DISPLAY.items()}
 _ALGO_TO_KEY["DAST"] = "dast"
 
-_PLOT_ORDER = ["GMM", "K-Means", "MST", "CLR", "DAS"]
+_PLOT_ORDER = ["GMM", "K-Means", "MST", "CLR", "Policy Tree", "DAS"]
 
 
 def _style_for(algo: str) -> dict:
@@ -491,7 +493,7 @@ def plot_ari_nmi(
 
     fig.legend(
         proxy_handles, labels_leg,
-        ncol=min(len(labels_leg), 5),
+        ncol=min(len(labels_leg), 3),
         frameon=False,
         loc="upper center",
         bbox_to_anchor=(ax_center, legend_y),

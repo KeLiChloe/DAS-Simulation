@@ -293,7 +293,10 @@ def parse_args():
     
     parser.add_argument("--implementation_scale", type=float, help="Scale of implementation population")
 
-    parser.add_argument("--N_sims", type=int, help="Number of simulations to run")
+    parser.add_argument(
+        "--N_sims", type=int,
+        help="Number of successful simulations to save (failed sims are retried with a new seed)",
+    )
     
     parser.add_argument("--n_workers", type=int, default=None,
                         help="Deprecated/ignored: simulations always run sequentially "
