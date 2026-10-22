@@ -2,7 +2,7 @@ Experiment setup snapshot
 =========================
 source_script : /home/5880.li/DAS-Simulation/run_scripts/discrete/run_d.sh
 copied_as     : exp_oct_2026/discrete/varying_d/set_2/run_script.sh
-saved_utc     : 2026-10-21T13:29:21Z
+saved_utc     : 2026-10-22T15:24:58Z
 host          : gpu-1-cii-01
 
 How to re-read parameters

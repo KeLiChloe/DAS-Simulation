@@ -27,7 +27,7 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying K
-for K in $(seq 2 1 10); do
+for K in $(seq 6 1 10); do
     K_TAG=$(printf "%02d" "$K")
 
     echo "🚀 Running experiment with K=${K} ..."
