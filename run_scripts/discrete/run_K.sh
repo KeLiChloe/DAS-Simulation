@@ -27,7 +27,7 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying K
-for K in $(seq 6 1 10); do
+for K in $(seq 2 1 10); do
     K_TAG=$(printf "%02d" "$K")
 
     echo "🚀 Running experiment with K=${K} ..."
@@ -50,9 +50,9 @@ for K in $(seq 6 1 10); do
         --d 5 \
         --partial_x 1 \
         --action_num 3 \
-        --N_sims 100 \
+        --N_sims 50 \
         --disallowed_ball_radius 0.2 \
-        --cv_folds 4 \
+        --cv_folds 5 \
         --action_method diff_in_means \
         --save_file "$OUTFILE" \
         --sequence_seed 888 \
