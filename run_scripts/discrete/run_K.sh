@@ -47,7 +47,7 @@ for K in $(seq 2 1 10); do
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K "$K" \
-        --d 6 \
+        --d 5 \
         --partial_x 1 \
         --action_num 3 \
         --N_sims 50 \
