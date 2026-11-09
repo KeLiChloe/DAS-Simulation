@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_oct_2026/discrete/varying_K/set_6"
+SAVE_DIR="exp_oct_2026/discrete/varying_K/set_7"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -49,7 +49,6 @@ for K in $(seq 2 1 10); do
         --K "$K" \
         --d 5 \
         --partial_x 1 \
-        --disturb_covariate_noise 35 \
         --action_num 3 \
         --N_sims 50 \
         --disallowed_ball_radius 0.2 \

@@ -41,7 +41,7 @@ for D in $(seq 1 2 21); do
         --DR_generation_method lightgbm \
         --kmeans_coef 0.1 \
         --x_mean_range -50 50 \
-        --N_segment_size 1000 \
+        --N_segment_size 5000 \
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K 5 \
