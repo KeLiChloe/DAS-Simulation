@@ -1,0 +1,17 @@
+\begin{table}[htbp]
+\centering
+\caption{How well each method recovers the true customer groups on the pilot data when we vary the covariate dimension $d$ (with $K=5$). Numbers are ARI and NMI, averaged over $d$ in the sweep and over simulation replications. Higher is better.}
+\label{tab:app-ari-nmi-varying-d-avg}
+\begin{tabular}{lcc}
+\toprule
+Method & ARI & NMI \\
+\midrule
+DAS & 0.149 & 0.272 \\
+Policy Tree & 0.197 & 0.289 \\
+K-Means & 0.665 & 0.746 \\
+MST & 0.283 & 0.386 \\
+GMM & 0.724 & 0.790 \\
+CLR & 0.768 & 0.794 \\
+\bottomrule
+\end{tabular}
+\end{table}

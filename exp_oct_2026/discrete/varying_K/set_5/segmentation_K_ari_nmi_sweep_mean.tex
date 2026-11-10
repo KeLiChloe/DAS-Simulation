@@ -1,0 +1,17 @@
+\begin{table}[htbp]
+\centering
+\caption{How well each method recovers the true customer groups on the pilot data when we vary the number of latent segments $K$. Numbers are ARI and NMI, averaged over $K$ in the sweep and over simulation replications. Higher is better.}
+\label{tab:app-ari-nmi-varying-K-avg}
+\begin{tabular}{lcc}
+\toprule
+Method & ARI & NMI \\
+\midrule
+DAS & 0.161 & 0.285 \\
+Policy Tree & 0.232 & 0.326 \\
+K-Means & 0.703 & 0.778 \\
+MST & 0.370 & 0.465 \\
+GMM & 0.828 & 0.848 \\
+CLR & 0.832 & 0.840 \\
+\bottomrule
+\end{tabular}
+\end{table}

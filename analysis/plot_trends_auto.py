@@ -273,7 +273,7 @@ def summarize_ratios(filtered_ratios):
         else:
             se    = float(stats.sem(pct, nan_policy="omit"))
             # Two-sided 95% CI half-width
-            tcrit = float(stats.t.ppf(0.975, n - 1))
+            tcrit = float(stats.t.ppf(0.95, n - 1))
             out[key] = (mu, se * tcrit, n)
     return out
 
@@ -343,7 +343,7 @@ def build_csv_from_dir(in_dir, out_csv,
 # ---------------------------------------------------------------
 # STEP 2: Plot from CSV
 # ---------------------------------------------------------------
-def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alpha=0.10):
+def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alpha=0.10, x_ticks=None):
     """Render and save one figure for a single (metric, param_name) slice."""
     xlabel = X_LABEL_MAP.get(param_name, param_name)
     title  = TITLE_MAP.get((metric, param_name),
@@ -445,6 +445,9 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
             else:
                 ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2g"))
 
+    if x_ticks is not None:
+        ax.set_xticks(x_ticks)
+
     ymin, ymax = ax.get_ylim()
     if np.isfinite(ymin) and np.isfinite(ymax) and ymax > ymin:
         pad = 0.05 * (ymax - ymin)
@@ -478,7 +481,7 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
     return out_base + ".pdf", out_base + ".png"
 
 
-def plot_from_csv(csv_path, out_fig, show_band=False, band_alpha=0.12):
+def plot_from_csv(csv_path, out_fig, show_band=False, band_alpha=0.12, x_ticks=None, x_values=None):
     df = pd.read_csv(csv_path)
 
     for col in ("param_value", "mean_pct", "err_pct"):
@@ -488,6 +491,10 @@ def plot_from_csv(csv_path, out_fig, show_band=False, band_alpha=0.12):
         df["err_pct"] = np.nan
 
     df = df.dropna(subset=["param_name", "param_value", "algo", "mean_pct"]).copy()
+    if x_values is not None:
+        df = df[df["param_value"].isin(x_values)].copy()
+        if df.empty:
+            raise ValueError("No data matches --x_values")
     if "metric" not in df.columns:
         df["metric"] = "relative_comp"
 
@@ -509,7 +516,7 @@ def plot_from_csv(csv_path, out_fig, show_band=False, band_alpha=0.12):
                 out_base = os.path.join(out_dir, f"{out_stem}_{param_name}_{metric}")
             saved.extend(_plot_one_metric(
                 sub, str(metric), str(param_name), out_base,
-                show_band=show_band, band_alpha=band_alpha,
+                show_band=show_band, band_alpha=band_alpha, x_ticks=x_ticks,
             ))
     return saved
 
@@ -564,6 +571,12 @@ def main():
         help="Confirm you intentionally skip refreshing from pkls.",
     )
 
+    for subparser in (p1, p2):
+        subparser.add_argument("--x_ticks", type=float, nargs="+", default=None,
+                               help="Explicit x-axis tick positions; retains all data points.")
+        subparser.add_argument("--x_values", type=float, nargs="+", default=None,
+                               help="Plot only these parameter values; keeps the full CSV.")
+
     args = parser.parse_args()
 
     if args.cmd == "build-csv":
@@ -589,6 +602,8 @@ def main():
                 csv_path=out_csv,
                 out_fig=out_fig,
                 show_band=args.show_band,
+                x_ticks=args.x_ticks,
+                x_values=args.x_values,
             )
             for path in saved:
                 print(f"[OK] Saved plot -> {path}")
@@ -605,6 +620,8 @@ def main():
             csv_path=args.csv,
             out_fig=out_fig,
             show_band=args.show_band,
+            x_ticks=args.x_ticks,
+            x_values=args.x_values,
         )
         for path in saved:
             print(f"[OK] Saved plot -> {path}")

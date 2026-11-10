@@ -1,0 +1,86 @@
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying covariate dimension ($K=5$). Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments.}
+\label{tab:app-ari-nmi-varying-d}
+\begin{tabular}{llcccccccc}
+\toprule
+Method & Metric & $d=1$ & $d=2$ & $d=3$ & $d=4$ & $d=5$ & $d=6$ & $d=7$ & $d=8$ \\
+\midrule
+DAS & ARI & 0.320 & 0.265 & 0.198 & 0.196 & 0.165 & 0.170 & 0.139 & 0.124 \\
+ & NMI & 0.489 & 0.411 & 0.343 & 0.328 & 0.301 & 0.302 & 0.269 & 0.256 \\
+\addlinespace
+Policy Tree & ARI & 0.335 & 0.316 & 0.280 & 0.255 & 0.236 & 0.241 & 0.185 & 0.181 \\
+ & NMI & 0.487 & 0.455 & 0.407 & 0.371 & 0.340 & 0.344 & 0.296 & 0.271 \\
+\addlinespace
+K-Means & ARI & 0.365 & 0.436 & 0.549 & 0.556 & 0.605 & 0.655 & 0.614 & 0.608 \\
+ & NMI & 0.545 & 0.603 & 0.685 & 0.690 & 0.713 & 0.737 & 0.715 & 0.714 \\
+\addlinespace
+MST & ARI & 0.305 & 0.280 & 0.313 & 0.312 & 0.310 & 0.310 & 0.299 & 0.292 \\
+ & NMI & 0.473 & 0.429 & 0.457 & 0.440 & 0.428 & 0.433 & 0.412 & 0.392 \\
+\addlinespace
+GMM & ARI & 0.543 & 0.671 & 0.735 & 0.772 & 0.799 & 0.818 & 0.804 & 0.804 \\
+ & NMI & 0.665 & 0.740 & 0.785 & 0.808 & 0.825 & 0.838 & 0.836 & 0.835 \\
+\addlinespace
+CLR & ARI & 0.314 & 0.307 & 0.448 & 0.579 & 0.732 & 0.827 & 0.848 & 0.866 \\
+ & NMI & 0.493 & 0.497 & 0.594 & 0.683 & 0.777 & 0.835 & 0.843 & 0.851 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying covariate dimension ($K=5$). Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments. Continued.}
+\label{tab:app-ari-nmi-varying-d-cont}
+\begin{tabular}{llcccccccc}
+\toprule
+Method & Metric & $d=9$ & $d=10$ & $d=11$ & $d=12$ & $d=13$ & $d=14$ & $d=16$ & $d=18$ \\
+\midrule
+DAS & ARI & 0.130 & 0.130 & 0.116 & 0.113 & 0.104 & 0.106 & 0.088 & 0.093 \\
+ & NMI & 0.257 & 0.249 & 0.232 & 0.228 & 0.209 & 0.215 & 0.190 & 0.182 \\
+\addlinespace
+Policy Tree & ARI & 0.184 & 0.170 & 0.167 & 0.160 & 0.154 & 0.139 & 0.118 & 0.119 \\
+ & NMI & 0.270 & 0.251 & 0.244 & 0.234 & 0.224 & 0.211 & 0.177 & 0.172 \\
+\addlinespace
+K-Means & ARI & 0.689 & 0.704 & 0.731 & 0.735 & 0.784 & 0.830 & 0.787 & 0.812 \\
+ & NMI & 0.759 & 0.771 & 0.780 & 0.789 & 0.825 & 0.845 & 0.821 & 0.833 \\
+\addlinespace
+MST & ARI & 0.318 & 0.281 & 0.285 & 0.273 & 0.288 & 0.261 & 0.252 & 0.225 \\
+ & NMI & 0.406 & 0.369 & 0.376 & 0.364 & 0.373 & 0.332 & 0.316 & 0.298 \\
+\addlinespace
+GMM & ARI & 0.833 & 0.803 & 0.787 & 0.775 & 0.733 & 0.713 & 0.622 & 0.599 \\
+ & NMI & 0.855 & 0.841 & 0.834 & 0.832 & 0.815 & 0.801 & 0.746 & 0.728 \\
+\addlinespace
+CLR & ARI & 0.884 & 0.892 & 0.903 & 0.899 & 0.904 & 0.915 & 0.910 & 0.914 \\
+ & NMI & 0.867 & 0.871 & 0.879 & 0.876 & 0.880 & 0.890 & 0.885 & 0.890 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying covariate dimension ($K=5$). Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments. Continued.}
+\label{tab:app-ari-nmi-varying-d-cont}
+\begin{tabular}{llc}
+\toprule
+Method & Metric & $d=20$ \\
+\midrule
+DAS & ARI & 0.082 \\
+ & NMI & 0.168 \\
+\addlinespace
+Policy Tree & ARI & 0.113 \\
+ & NMI & 0.162 \\
+\addlinespace
+K-Means & ARI & 0.845 \\
+ & NMI & 0.853 \\
+\addlinespace
+MST & ARI & 0.202 \\
+ & NMI & 0.261 \\
+\addlinespace
+GMM & ARI & 0.502 \\
+ & NMI & 0.654 \\
+\addlinespace
+CLR & ARI & 0.917 \\
+ & NMI & 0.892 \\
+\bottomrule
+\end{tabular}
+\end{table}
