@@ -7,7 +7,7 @@
 #   # one-shot
 #   bash run_scripts/auto_git_push.sh once
 #
-#   # every 2 hours in background (valid through 2026-11-10)
+#   # every 2 hours in background (valid through 2026-12-10)
 #   mkdir -p logs
 #   nohup bash run_scripts/auto_git_push.sh loop 7200 \
 #     >> logs/auto_git_push.log 2>&1 &
@@ -18,11 +18,11 @@
 #
 # Env overrides:
 #   AUTO_GIT_INTERVAL_SEC   default 7200 = 2h (loop only)
-#   AUTO_GIT_EXPIRES         default 2026-11-10 (inclusive; YYYY-MM-DD)
+#   AUTO_GIT_EXPIRES         default 2026-12-10 (inclusive; YYYY-MM-DD)
 #   AUTO_GIT_REMOTE          default origin
 #   AUTO_GIT_BRANCH          default current branch
 #   AUTO_GIT_PATHS           space-separated paths to add
-#                           default: exp_oct_2026 analysis run_scripts
+#                           default: exp_oct_2026 exp_nov_2026 analysis run_scripts
 #   AUTO_GIT_COMMIT_MSG      default includes hostname + timestamp
 #   AUTO_GIT_DRY_RUN=1       print actions only, no commit/push
 #   AUTO_GIT_PUSH_ONLY=1     never commit; only push if ahead of remote
@@ -42,9 +42,9 @@ BRANCH="${AUTO_GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 DRY_RUN="${AUTO_GIT_DRY_RUN:-0}"
 PUSH_ONLY="${AUTO_GIT_PUSH_ONLY:-0}"
 # Inclusive calendar day; script refuses to run after this date.
-EXPIRES="${AUTO_GIT_EXPIRES:-2026-11-10}"
+EXPIRES="${AUTO_GIT_EXPIRES:-2026-12-10}"
 # shellcheck disable=SC2206
-PATHS=(${AUTO_GIT_PATHS:-exp_oct_2026 analysis run_scripts})
+PATHS=(${AUTO_GIT_PATHS:-exp_oct_2026 exp_nov_2026 analysis run_scripts})
 LOCK_FILE="${ROOT}/.auto_git_push.lock"
 
 LOG_TS() { date '+%Y-%m-%d %H:%M:%S'; }
