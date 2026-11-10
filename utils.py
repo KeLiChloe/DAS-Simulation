@@ -241,14 +241,14 @@ def parse_args():
 
     parser.add_argument("--beta_range",  type=float, nargs=2, help="Range for covariate effect beta")
     parser.add_argument("--target_p_range", type=float, nargs=2, required=True,
-                        help="P(Y=1 | x=x_mean, D=a) range for NON-winner actions "
+                        help="Segment-average P(Y=1 | D=a) range for NON-winner actions "
                              "(or all actions when --winner_p_range is not set). "
-                             "Alpha and tau are back-computed to hit these targets exactly.")
+                             "Alpha and tau are calibrated over the segment covariate distribution; sampled response rates fluctuate.")
     parser.add_argument("--winner_p_range", type=float, nargs=2, default=None,
-                        help="[optional] P(Y=1 | x=x_mean, D=a*) range for the "
+                        help="[optional] segment-average P(Y=1 | D=a*) range for the "
                              "WINNER action (randomly chosen per segment). When set, one action per "
                              "segment gets a probability drawn from this range while all other "
-                             "actions use --target_p_range, ensuring a clear best action. "
+                             "actions use --target_p_range. Disjoint ranges ensure a best action in the segment average, not for every customer. "
                              "Example: --target_p_range 0.02 0.10 --winner_p_range 0.15 0.40")
     parser.add_argument("--delta_range", type=float, nargs=2,
                         help="Range for delta (treatment–covariate interaction) in the DGP")

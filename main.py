@@ -541,6 +541,7 @@ def main(args, param_range):
 
     exp_result_dict = {
         "exp_params": {
+            "response_calibration":    "segment_distribution",
             "sequence_seed":           seq_seed,
             "action_num":              getattr(args, 'action_num', 2),
             "K":                       getattr(args, "K", None),
