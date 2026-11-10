@@ -10,7 +10,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_oct_2026/discrete/varying_K/set_7"
+SAVE_DIR="exp_nov_2026/discrete/varying_K/set_1"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -36,8 +36,8 @@ for K in $(seq 2 1 10); do
 
     # Discrete Bernoulli: P(Y=1)=sigmoid(alpha + beta@x + tau[D])
     python3 main.py \
-        --target_p_range 0.001 0.01 \
-        --winner_p_range 0.01 0.02 \
+        --target_p_range 0.005 0.015 \
+        --winner_p_range 0.015 0.03 \
         --beta_range -0.1 0.1 \
         --delta_range -0.08 0.08 \
         --DR_generation_method lightgbm \
