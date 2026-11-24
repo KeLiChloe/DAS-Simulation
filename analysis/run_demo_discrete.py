@@ -54,8 +54,6 @@ DEMO_CONFIG: Dict[str, Any] = {
     "train_frac_retrain": 1.0,  # pilot train share for final fit after M is picked
     "use_hybrid_method": True,
     "action_method": "diff_in_means",  # diff_in_means | gamma | logistic
-    "disturb_covariate_noise": 3.0,
-    "partial_x": 1.0,
     "DR_generation_method": "lightgbm",
     "disallowed_ball_radius": 0.2,
     "algorithms": ("kmeans-standard", "dast"),
@@ -108,8 +106,6 @@ class DiscreteDemo:
         self.train_frac_retrain = c["train_frac_retrain"]
         self.use_hybrid_method = c["use_hybrid_method"]
         self.action_method = c["action_method"]
-        self.disturb_covariate_noise = c["disturb_covariate_noise"]
-        self.partial_x = c["partial_x"]
         self.DR_generation_method = c["DR_generation_method"]
         self.disallowed_ball_radius = c["disallowed_ball_radius"]
         self.algorithms = tuple(c["algorithms"])
@@ -142,10 +138,8 @@ class DiscreteDemo:
             self.n_implement,
             self.d,
             self.K,
-            self.disturb_covariate_noise,
             self.param_range,
             self.DR_generation_method,
-            self.partial_x,
             action_num=self.action_num,
             X_mean_vectors=self.x_mean_vectors,
             target_mahalanobis_sep=self.target_mahalanobis_sep,
@@ -189,7 +183,7 @@ class DiscreteDemo:
 
         pop = self.pop
         self.oracle_profits = oracle_profit_on_customers(
-            pop.implement_customers, signal_d=pop.signal_d,
+            pop.implement_customers,
         )
         for algo, res in self.results.items():
             if algo == "kmeans-standard":
@@ -266,28 +260,27 @@ class DiscreteDemo:
             stem = self.out_dir / f"{algo}_segmentation_{picked_M}"
             if algo == "kmeans-standard" and res.get("m_selection") == "elbow_inertia_from_M1":
                 sweep = res["m_sweep"]
-                _, saved[algo] = plot_kmeans_silhouette_elbow(
+                _, saved[f"{algo}_cluster_selection"] = plot_kmeans_silhouette_elbow(
                     sweep["M"].to_numpy(),
                     sweep["kmeans-standard_val"].to_numpy(),
                     sweep["silhouette"].to_numpy(),
                     elbow_M=int(picked_M),
                     silhouette_M=int(res.get("silhouette_picked_M", picked_M)),
-                    out_path=str(stem),
+                    out_path=str(self.out_dir / f"{algo}_cluster_selection"),
                 )
-            else:
-                _, saved[algo] = plot_demo_segmentation(
-                    plot_labels,
-                    x_mat[plot_idx],
-                    plot_y,
-                    plot_D,
-                    algo=algo,
-                    M=picked_M,
-                    out_path=str(stem),
-                    tree=res.get("tree"),
-                    model=res.get("model"),
-                    segment_colors=self.segment_colors_estimated,
-                    seg_estimated_actions=seg_estimated_actions,
-                )
+            _, saved[algo] = plot_demo_segmentation(
+                plot_labels,
+                x_mat[plot_idx],
+                plot_y,
+                plot_D,
+                algo=algo,
+                M=picked_M,
+                out_path=str(stem),
+                tree=res.get("tree"),
+                model=res.get("model"),
+                segment_colors=self.segment_colors_estimated,
+                seg_estimated_actions=seg_estimated_actions,
+            )
             stack_panels.append({
                 "kind": "segmentation",
                 "labels": plot_labels,

@@ -1,7 +1,7 @@
 from ground_truth import PopulationSimulator, SegmentEstimate
 from plot import plot_ground_truth, plot_segmentation, plot_bernoulli_prob_histogram
 from gmm import GMM_segment_and_estimate
-from oracle import structure_oracle, policy_oracle, oracle_profit_on_customers
+from oracle import policy_oracle, oracle_profit_on_customers
 import pandas as pd
 import numpy as np
 from dast import DAST_segment_and_estimate
@@ -154,10 +154,8 @@ def _run_one_sim(packed_args):
     pop = PopulationSimulator(
         N_pilot, N_impl,
         args.d, args.K,
-        args.disturb_covariate_noise,
         param_range,
         args.DR_generation_method,
-        args.partial_x,
         action_num=getattr(args, 'action_num', 2),
         X_noise_std_scale=args.X_noise_std_scale,
         target_mahalanobis_sep=getattr(args, 'target_mahalanobis_sep', None),
@@ -175,9 +173,6 @@ def _run_one_sim(packed_args):
             run_idx=sim_idx,
         )
 
-    # ── Pre-compute true segment ids for all pilot customers (never changes) ──
-    all_true_seg_ids = np.array([c.true_segment.segment_id for c in pop.pilot_customers])
-
     # ── Cached splits: 80/20 for mst; 100% for standard + final retrain ───────
     split07 = _build_split(pop, 0.8, args.d)
     split10 = _build_split(pop, 1.0, args.d)
@@ -185,7 +180,7 @@ def _run_one_sim(packed_args):
 
     # ── Oracle profit (algorithm-independent, computed once per sim) ──────────
     oracle_profit_impl = oracle_profit_on_customers(
-        pop.implement_customers, signal_d=pop.signal_d)
+        pop.implement_customers)
 
     algo_result_dict = {}
 
@@ -204,8 +199,6 @@ def _run_one_sim(packed_args):
             x_mat_tr  = sp['x_mat_tr']
             D_vec_tr  = sp['D_vec_tr']
             y_vec_tr  = sp['y_vec_tr']
-
-            true_seg_ids_tr = all_true_seg_ids[sp['train_indices']]
 
             # ── M sweep (segmentation methods only) ─────────────────────────────
             results_M = []
@@ -233,8 +226,6 @@ def _run_one_sim(packed_args):
                         results_M.append({
                             "M": M,
                             f"{algo}_val": cv_score,
-                            "ARI": None,
-                            "NMI": None,
                             "regret": None,
                             "mistreatment_rate": None,
                             "manager_profit": None,
@@ -245,15 +236,10 @@ def _run_one_sim(packed_args):
                             include_interactions=include_interactions,
                             seed=seed, action_method=action_method, args=args,
                         )
-                        est_seg_ids_tr = np.array(
-                            [c.est_segment[algo].segment_id for c in pop.train_customers])
-                        S = structure_oracle(true_seg_ids_tr, est_seg_ids_tr)
-                        P = policy_oracle(pop.pilot_customers, algo=algo, signal_d=pop.signal_d)
+                        P = policy_oracle(pop.pilot_customers, algo=algo)
                         results_M.append({
                             "M": M,
                             f"{algo}_val": score,
-                            "ARI": S["ARI"],
-                            "NMI": S["NMI"],
                             "regret": P["regret"],
                             "mistreatment_rate": P["mistreatment_rate"],
                             "manager_profit": P["manager_profit"],
@@ -264,7 +250,6 @@ def _run_one_sim(packed_args):
             # ── Pick optimal M ────────────────────────────────────────────────
             if is_meta:
                 oracle_picked_M = {
-                    'Oracle_ARI': 0, 'Oracle_NMI': 0,
                     'Oracle_Regret': 0, 'Oracle_Mistreat': 0,
                 }
             else:
@@ -273,15 +258,12 @@ def _run_one_sim(packed_args):
                           file=sys.__stderr__)
                     continue
                 if use_cv:
-                    # Structure/policy oracles filled after full-pilot retrain
+                    # Policy metrics filled after full-pilot retrain
                     oracle_picked_M = {
-                        'Oracle_ARI': None, 'Oracle_NMI': None,
                         'Oracle_Regret': None, 'Oracle_Mistreat': None,
                     }
                 else:
                     oracle_picked_M = {
-                        'Oracle_ARI':      df_M.at[df_M['ARI'].idxmax(),              'M'],
-                        'Oracle_NMI':      df_M.at[df_M['NMI'].idxmax(),              'M'],
                         'Oracle_Regret':   df_M.at[df_M['regret'].idxmin(),           'M'],
                         'Oracle_Mistreat': df_M.at[df_M['mistreatment_rate'].idxmin(),'M'],
                     }
@@ -299,8 +281,6 @@ def _run_one_sim(packed_args):
             algo_result_dict[algo] = {
                 "picked_M":                   picked_M if not is_meta else "Not applicable",
                 "profit_at_manager_picked_M": row['manager_profit']    if (row is not None and not use_cv) else None,
-                "ARI":                        row['ARI']               if (row is not None and not use_cv) else None,
-                "NMI":                        row['NMI']               if (row is not None and not use_cv) else None,
                 "regret":                     row['regret']            if (row is not None and not use_cv) else None,
                 "mistreatment_rate":          row['mistreatment_rate'] if (row is not None and not use_cv) else None,
             }
@@ -334,8 +314,7 @@ def _run_one_sim(packed_args):
                             pop.implement_customers, x_mat_tr, D_vec_tr, y_vec_tr
                         )
                     )
-                    # Attach leaf segments on pilot so ARI / policy_oracle match
-                    # other segmentation methods (leaf id ≈ estimated segment).
+                    # Attach leaf segments on pilot for policy evaluation.
                     act_id = np.asarray(act_id, dtype=int)
                     train_leaf_ids = np.asarray(train_leaf_ids, dtype=int)
                     train_action_idx = np.asarray(train_action_idx, dtype=int)
@@ -353,14 +332,9 @@ def _run_one_sim(packed_args):
                         cust.est_segment["policy_tree"] = (
                             pop.est_segments_list["policy_tree"][int(train_leaf_ids[j])]
                         )
-                    S = structure_oracle(
-                        all_true_seg_ids[split10["train_indices"]], train_leaf_ids
-                    )
                     P = policy_oracle(
-                        pop.train_customers, algo="policy_tree", signal_d=pop.signal_d
+                        pop.train_customers, algo="policy_tree"
                     )
-                    algo_result_dict[algo]["ARI"] = S["ARI"]
-                    algo_result_dict[algo]["NMI"] = S["NMI"]
                     algo_result_dict[algo]["regret"] = P["regret"]
                     algo_result_dict[algo]["mistreatment_rate"] = P["mistreatment_rate"]
                     algo_result_dict[algo]["profit_at_manager_picked_M"] = P[
@@ -441,14 +415,9 @@ def _run_one_sim(packed_args):
             else:
                 raise ValueError(f"Unknown algorithm: {algo}")
 
-            # CV algos: fill structure/policy metrics from full-pilot retrain
+            # CV algos: fill policy metrics from full-pilot retrain
             if use_cv:
-                est_seg_ids_full = np.array(
-                    [c.est_segment[algo].segment_id for c in pop.train_customers])
-                S = structure_oracle(all_true_seg_ids[split10['train_indices']], est_seg_ids_full)
-                P = policy_oracle(pop.pilot_customers, algo=algo, signal_d=pop.signal_d)
-                algo_result_dict[algo]["ARI"] = S["ARI"]
-                algo_result_dict[algo]["NMI"] = S["NMI"]
+                P = policy_oracle(pop.pilot_customers, algo=algo)
                 algo_result_dict[algo]["regret"] = P["regret"]
                 algo_result_dict[algo]["mistreatment_rate"] = P["mistreatment_rate"]
                 algo_result_dict[algo]["profit_at_manager_picked_M"] = P["manager_profit"]
@@ -494,7 +463,7 @@ def _run_one_sim(packed_args):
 
     covariate_overlap = {
         **getattr(pop, "covariate_distance_summary", {}),
-        "signal_covariate_noise": getattr(pop, "signal_covariate_noise", None),
+        "covariate_noise": getattr(pop, "covariate_noise", None),
         "target_mahalanobis_sep": getattr(pop, "target_mahalanobis_sep", None),
         "realized_median_nn_mahalanobis_sep": getattr(pop, "realized_median_nn_mahalanobis_sep", None),
         "realized_min_nn_mahalanobis_sep": getattr(pop, "realized_min_nn_mahalanobis_sep", None),
@@ -546,10 +515,8 @@ def main(args, param_range):
             "action_num":              getattr(args, 'action_num', 2),
             "K":                       getattr(args, "K", None),
             "d":                       getattr(args, "d", None),
-            "partial_x":               getattr(args, 'partial_x', None),
             "X_noise_std_scale":       getattr(args, 'X_noise_std_scale', None),
             "target_mahalanobis_sep":  getattr(args, 'target_mahalanobis_sep', None),
-            "disturb_covariate_noise": getattr(args, 'disturb_covariate_noise', None),
             "disallowed_ball_radius":  getattr(args, 'disallowed_ball_radius', None),
             "param_range":             param_range,
             "N_segment_size":          getattr(args, 'N_segment_size', None),

@@ -1,7 +1,7 @@
 #!/bin/bash
+# Launcher updated to use all covariates; existing result files retain their original parameters.
 # Discrete: vary K (cluster count).
 # Noise: exactly one of --X_noise_std_scale | --target_mahalanobis_sep.
-# With --partial_x 1, --disturb_covariate_noise is unused (disturb_d=0).
 
 # Prevent numpy/BLAS thread-pool fork deadlocks on macOS.
 # Must be set before Python starts (setting inside Python is too late).
@@ -48,8 +48,6 @@ for K in $(seq 2 1 10); do
         --X_noise_std_scale 0.25 \
         --K "$K" \
         --d 5 \
-        --partial_x 0.8 \
-        --disturb_covariate_noise 35 \
         --action_num 3 \
         --N_sims 50 \
         --disallowed_ball_radius 0.2 \

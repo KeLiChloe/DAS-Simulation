@@ -408,10 +408,19 @@ def _plot_one_metric(df, metric, param_name, out_base, show_band=False, band_alp
             e  = sub["err_pct"].to_numpy(dtype=float)
             ok = np.isfinite(x) & np.isfinite(y) & np.isfinite(e)
             if np.any(ok):
-                ax.fill_between(
-                    x[ok], (y - e)[ok], (y + e)[ok],
-                    alpha=band_alpha, color=color, linewidth=0, zorder=zo - 1,
-                )
+                if np.unique(x[ok]).size == 1:
+                    # Give a lone parameter point a small visual width so its
+                    # uncertainty band remains visible without adjacent points.
+                    xi, yi, ei = x[ok][0], y[ok][0], e[ok][0]
+                    ax.fill_between(
+                        [xi - 0.15, xi + 0.15], yi - ei, yi + ei,
+                        alpha=band_alpha, color=color, linewidth=0, zorder=zo - 1,
+                    )
+                else:
+                    ax.fill_between(
+                        x[ok], (y - e)[ok], (y + e)[ok],
+                        alpha=band_alpha, color=color, linewidth=0, zorder=zo - 1,
+                    )
 
     ax.axhline(0, color="0.35", linestyle=":", linewidth=0.9, alpha=0.85, zorder=1)
 

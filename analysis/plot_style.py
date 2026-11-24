@@ -166,7 +166,7 @@ def layout_demo_2d(fig, *, discrete_outcome: bool = True) -> None:
 
 
 def layout_demo_stack(fig) -> None:
-    fig.subplots_adjust(hspace=0.48, wspace=0.22,
+    fig.subplots_adjust(hspace=0.56, wspace=0.22,
                         top=0.94, left=0.08, right=0.97, bottom=0.20)
 
 

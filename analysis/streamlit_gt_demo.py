@@ -66,15 +66,15 @@ def _meta_fn(algo: str):
     raise ValueError(f"Unknown meta algorithm: {algo}")
 
 
-def _oracle_action_at(seg, x: np.ndarray, signal_d: int, action_num: int) -> int:
+def _oracle_action_at(seg, x: np.ndarray, action_num: int) -> int:
     scores = [
-        _sigmoid(seg._linear_predictor(x, a, signal_d)) for a in range(action_num)
+        _sigmoid(seg._linear_predictor(x, a)) for a in range(action_num)
     ]
     return int(np.argmax(scores))
 
 
-def _p_at_xmean(seg, a: int, signal_d: int) -> float:
-    return float(_sigmoid(seg._linear_predictor(seg.x_mean, a, signal_d)))
+def _p_at_xmean(seg, a: int) -> float:
+    return float(_sigmoid(seg._linear_predictor(seg.x_mean, a)))
 
 
 @contextlib.contextmanager
@@ -147,10 +147,8 @@ def build_population(params: dict[str, Any]) -> PopulationSimulator:
         N_total_implement_customers=N_impl,
         d=2,
         K=params["K"],
-        disturb_covariate_noise=1.0,  # unused when partial_x=1 (disturb_d=0)
         param_range=_param_range_from(params),
         DR_generation_method=dr_method,
-        partial_x=1.0,
         action_num=params["action_num"],
         disallowed_ball_radius=params["disallowed_ball_radius"],
     )
@@ -163,7 +161,7 @@ def build_population(params: dict[str, Any]) -> PopulationSimulator:
 
 
 @st.cache_data(show_spinner="Generating ground-truth population…")
-def generate_gt_bundle(_cache_ver: int = 2, **params) -> dict[str, Any]:
+def generate_gt_bundle(_cache_ver: int = 3, **params) -> dict[str, Any]:
     """Serializable GT arrays for plotting (cached)."""
     pop = build_population(params)
     action_num = params["action_num"]
@@ -173,7 +171,7 @@ def generate_gt_bundle(_cache_ver: int = 2, **params) -> dict[str, Any]:
     )
     oracle_a = np.asarray(
         [
-            _oracle_action_at(c.true_segment, c.x, pop.signal_d, action_num)
+            _oracle_action_at(c.true_segment, c.x, action_num)
             for c in pop.pilot_customers
         ],
         dtype=int,
@@ -184,7 +182,7 @@ def generate_gt_bundle(_cache_ver: int = 2, **params) -> dict[str, Any]:
     for seg in pop.true_segments:
         row = {"segment": int(seg.segment_id), "best@x_mean": int(seg.action)}
         for a in range(action_num):
-            row[f"p(D={a})"] = round(_p_at_xmean(seg, a, pop.signal_d), 4)
+            row[f"p(D={a})"] = round(_p_at_xmean(seg, a), 4)
         rows.append(row)
 
     seg_packs = []
@@ -208,7 +206,7 @@ def generate_gt_bundle(_cache_ver: int = 2, **params) -> dict[str, Any]:
         "seg_packs": seg_packs,
         "prob_rows": rows,
         "metrics": {
-            "signal_covariate_noise": float(pop.signal_covariate_noise),
+            "covariate_noise": float(pop.covariate_noise),
             "noise_mode": str(params.get("noise_mode", "mahalanobis")),
             "X_noise_std_scale": (
                 None
@@ -226,18 +224,17 @@ def generate_gt_bundle(_cache_ver: int = 2, **params) -> dict[str, Any]:
             "N_pilot": int(len(pop.pilot_customers)),
         },
         "action_num": int(action_num),
-        "signal_d": int(pop.signal_d),
     }
 
 
-def _linear_predictor_from_pack(pack: dict, x: np.ndarray, a: int, signal_d: int) -> float:
+def _linear_predictor_from_pack(pack: dict, x: np.ndarray, a: int) -> float:
     eta = (
         pack["alpha"]
-        + float(pack["beta"][:signal_d] @ x[:signal_d])
+        + float(pack["beta"] @ x)
         + float(pack["tau"][a])
     )
     if pack["delta"] is not None:
-        eta += float(pack["delta"][a, :signal_d] @ x[:signal_d])
+        eta += float(pack["delta"][a] @ x)
     return eta
 
 
@@ -245,7 +242,6 @@ def oracle_action_grid(
     centers: np.ndarray,
     seg_packs: list[dict],
     action_num: int,
-    signal_d: int,
     xlim: tuple[float, float],
     ylim: tuple[float, float],
     resolution: int = 160,
@@ -260,7 +256,7 @@ def oracle_action_grid(
     for i, (pt, sid) in enumerate(zip(pts, nearest)):
         pack = seg_packs[int(sid)]
         scores = [
-            _sigmoid(_linear_predictor_from_pack(pack, pt, a, signal_d))
+            _sigmoid(_linear_predictor_from_pack(pack, pt, a))
             for a in range(action_num)
         ]
         actions[i] = int(np.argmax(scores))
@@ -288,7 +284,6 @@ def _add_action_background(
         bundle["centers"],
         bundle["seg_packs"],
         bundle["action_num"],
-        bundle["signal_d"],
         xlim,
         ylim,
     )
@@ -504,7 +499,7 @@ def fit_seg_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
     )
     S = structure_oracle(true_ids, labels)
     # Match main.py post-retrain: policy on all pilot (train_frac=1 ⇒ train==pilot)
-    P = policy_oracle(pop.pilot_customers, algo=algo, signal_d=pop.signal_d)
+    P = policy_oracle(pop.pilot_customers, algo=algo)
 
     if result.get("tree") is not None and result.get("segment_dict") is not None:
         result["tree"].predict_segment(pop.implement_customers, result["segment_dict"])
@@ -517,7 +512,7 @@ def fit_seg_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
 
     impl_profit = float(sum(c.evaluate_profits(algo) for c in pop.implement_customers))
     oracle_impl = float(
-        oracle_profit_on_customers(pop.implement_customers, signal_d=pop.signal_d)
+        oracle_profit_on_customers(pop.implement_customers)
     )
 
     # X must come from the same pop/order as labels (never reuse GT-bundle X).
@@ -592,7 +587,7 @@ def fit_meta_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
             [c.true_segment.segment_id for c in pop.train_customers], dtype=int
         )
         S = structure_oracle(true_ids, train_leaf_ids)
-        P = policy_oracle(pop.train_customers, algo="policy_tree", signal_d=pop.signal_d)
+        P = policy_oracle(pop.train_customers, algo="policy_tree")
         ari, nmi = float(S["ARI"]), float(S["NMI"])
         regret, mist = float(P["regret"]), float(P["mistreatment_rate"])
         picked_M = n_leaves
@@ -610,7 +605,7 @@ def fit_meta_algorithm(params: dict[str, Any], algo: str) -> dict[str, Any]:
             cust.evaluate_profits(algo, int(act_id[labels_impl[i]]))
         )
     oracle_impl = float(
-        oracle_profit_on_customers(pop.implement_customers, signal_d=pop.signal_d)
+        oracle_profit_on_customers(pop.implement_customers)
     )
 
     X_plot = np.asarray([c.x for c in pop.pilot_customers], dtype=float)
@@ -873,7 +868,7 @@ def main() -> None:
 
     with left:
         try:
-            bundle = generate_gt_bundle(_cache_ver=2, **gt_keys)
+            bundle = generate_gt_bundle(_cache_ver=3, **gt_keys)
         except Exception as exc:
             st.error(f"`{exc}`")
             st.stop()
@@ -886,17 +881,17 @@ def main() -> None:
             c2.metric("X_noise_std_scale", f"{m['X_noise_std_scale']:.3f}")
         else:
             c2.metric("target_mahal", f"{m['target_mahalanobis_sep']:.2f}")
-        c3.metric("σ", f"{m['signal_covariate_noise']:.3f}")
+        c3.metric("σ", f"{m['covariate_noise']:.3f}")
         c4.metric("NN Mahal", f"{m['median_nn_mahalanobis']:.2f}")
 
         st.plotly_chart(
             build_gt_figure(bundle, show_background=params["show_background"]),
-            use_container_width=True,
+            width="stretch",
         )
 
         st.dataframe(
             pd.DataFrame(bundle["prob_rows"]).set_index("segment"),
-            use_container_width=True,
+            width="stretch",
             hide_index=False,
         )
 
@@ -948,7 +943,7 @@ def main() -> None:
                     with col:
                         st.plotly_chart(
                             build_algo_figure(bundle, res, algo=algo),
-                            use_container_width=True,
+                            width="stretch",
                         )
 
 

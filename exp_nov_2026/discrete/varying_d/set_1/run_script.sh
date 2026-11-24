@@ -1,7 +1,7 @@
 #!/bin/bash
+# Launcher updated to use all covariates; existing result files retain their original parameters.
 # Discrete: vary covariate dimension d.
 # Noise: exactly one of --X_noise_std_scale | --target_mahalanobis_sep.
-# With --partial_x 1, --disturb_covariate_noise is unused (disturb_d=0).
 
 # Prevent numpy/BLAS thread-pool fork deadlocks on macOS.
 # Must be set before Python starts (setting inside Python is too late).
@@ -46,7 +46,6 @@ for D in $(seq 1 2 21); do
         --X_noise_std_scale 0.2 \
         --K 5 \
         --d "$D" \
-        --partial_x 1 \
         --action_num 3 \
         --N_sims 50 \
         --disallowed_ball_radius 0.2 \

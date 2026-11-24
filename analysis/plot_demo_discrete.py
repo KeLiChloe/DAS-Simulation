@@ -54,6 +54,14 @@ _LEGEND_MARKER_W = 0.018
 _LEGEND_MARKER_MS = 5.0
 
 
+def _legend_scale(ax) -> float:
+    return getattr(ax, "_demo_legend_scale", 1.0)
+
+
+def _legend_fontsize(ax) -> float:
+    return demo_legend_style()["fontsize"] * _legend_scale(ax)
+
+
 def _axes_text_width(ax, text: str, fontsize: float) -> float:
     """Measure rendered text width in axes-fraction coordinates."""
     fig = ax.figure
@@ -86,8 +94,9 @@ def _learned_seg_label(seg_id) -> str:
 
 
 def _est_action_math(display_k: int, est_act) -> str:
-    """Mathtext for segment-wise estimated action, e.g. $\\widehat{a}_1=1$."""
-    return rf"$\widehat{{a}}_{{{int(display_k)}}}={int(est_act)}$"
+    """Name the advertisement recommended for a learned segment."""
+    ad = {0: "A", 1: "B"}.get(int(est_act), str(est_act))
+    return f"estimated ad: {ad}"
 
 
 def _kmeans_seg_ids_by_centroid_x(model, feature_idx: int = 0) -> list[int]:
@@ -115,7 +124,7 @@ def _row_width_swatch_label(ax, label: str, fs: float) -> float:
 def _row_width_gt(ax, seg_id, opt_act, fs: float) -> float:
     fs_opt = fs - 0.35
     seg_text = _true_seg_label(seg_id)
-    opt_text = f"optimal action: {opt_act}"
+    opt_text = f"optimal ad: { {0: 'A', 1: 'B'}.get(opt_act, opt_act)}"
     return (
         _LEGEND_PAD + _LEGEND_SWATCH_W + _LEGEND_SWATCH_GAP
         + _axes_text_width(ax, seg_text, fs) + _LEGEND_TEXT_GAP
@@ -343,12 +352,12 @@ def _legend_marker_axes(ax, x_ax, y_ax, act, color, action_to_marker, *, ms=None
 
 
 def _legend_layout(ax, n_rows: int):
-    fs = demo_legend_style(ncol=1)["fontsize"]
-    y_top = 1.02
+    fs = _legend_fontsize(ax)
+    y_top = 1.02 + 0.04 * (_legend_scale(ax) > 1)
     y_floor = discrete_legend_axes_y_floor(ax)
     row_h = min(
-        _LEGEND_ROW_H_MAX,
-        max(_LEGEND_ROW_H_MIN, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
+        _LEGEND_ROW_H_MAX * _legend_scale(ax),
+        max(_LEGEND_ROW_H_MIN * _legend_scale(ax), (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
     )
     box_h = n_rows * row_h + 2 * _LEGEND_PAD
     y_bot = max(y_top - box_h, y_floor)
@@ -384,7 +393,7 @@ def _draw_gt_legend_row(
     ax, x_left: float, y: float, seg_id, color, opt_act, action_to_marker, fs: float,
 ) -> None:
     seg_text = _true_seg_label(seg_id)
-    opt_text = f"optimal action: {opt_act}"
+    opt_text = f"optimal ad: { {0: 'A', 1: 'B'}.get(opt_act, opt_act)}"
     fs_opt = fs - 0.35
     x = x_left + _LEGEND_PAD
     _draw_legend_rect(ax, x, y, color)
@@ -471,15 +480,15 @@ def _build_segment_legend(
         raise NotImplementedError("Treatment rows are only shown in the pilot panel.")
     n_segs = len(seg_ids)
     n_rows = n_segs + (1 if extra_handles else 0)
-    fs = demo_legend_style(ncol=1)["fontsize"]
-    y_top = 1.02 if legend_y_top is None else legend_y_top
+    fs = _legend_fontsize(ax)
+    y_top = (1.02 if legend_y_top is None else legend_y_top) + 0.04 * (_legend_scale(ax) > 1)
     floor_kw = {} if y_floor_pad is None else {"pad": y_floor_pad}
     y_floor = discrete_legend_axes_y_floor(ax, **floor_kw)
     rmin = _LEGEND_ROW_H_MIN if row_h_min is None else row_h_min
     rmax = _LEGEND_ROW_H_MAX if row_h_max is None else row_h_max
     row_h = min(
-        rmax,
-        max(rmin, (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
+        rmax * _legend_scale(ax),
+        max(rmin * _legend_scale(ax), (y_top - y_floor - 2 * _LEGEND_PAD) / max(n_rows, 1)),
     )
     box_h = n_rows * row_h + 2 * _LEGEND_PAD
     y_bot = max(y_top - box_h, y_floor)
@@ -574,7 +583,7 @@ def _draw_discrete_pilot_panel(
     ax, df, *, title="Pilot Data",
     x_col="x_0", y_col="outcome", D_col="D_i",
 ):
-    """All points black; legend shows only treatment markers (D=0, D=1, …)."""
+    """All points black; legend names the advertisements for each action."""
     x0 = df[x_col].to_numpy()
     y_vec = df[y_col].to_numpy()
     D_vec = df[D_col].to_numpy().astype(int)
@@ -596,15 +605,15 @@ def _draw_discrete_pilot_panel(
     _style_discrete_2d_panel(ax, y_vec, show_xlabel=False)
 
     # Treatment-only legend (simple, tight, top-right)
-    fs = demo_legend_style()["fontsize"]
+    fs = _legend_fontsize(ax)
     fs_leg = fs - 0.35
     y_floor = discrete_legend_axes_y_floor(ax)
     pad = _LEGEND_PAD
     row_h = min(
-        _LEGEND_ROW_H_MAX,
-        max(_LEGEND_ROW_H_MIN, (0.97 - y_floor - 2 * pad) / max(len(unique_actions), 1)),
+        _LEGEND_ROW_H_MAX * _legend_scale(ax),
+        max(_LEGEND_ROW_H_MIN * _legend_scale(ax), (0.97 - y_floor - 2 * pad) / max(len(unique_actions), 1)),
     )
-    label_for = lambda a: f"treatment $D = {a}$"
+    label_for = lambda a: {0: "Ad A", 1: "Ad B"}.get(a, f"Action {a}")
     dtext_w = max(_axes_text_width(ax, label_for(a), fs_leg) for a in unique_actions)
     gap_txt_mk = 0.012
     marker_w = _LEGEND_MARKER_W
@@ -613,7 +622,7 @@ def _draw_discrete_pilot_panel(
     box_w = min(box_w, 0.72)
     n_rows = len(unique_actions)
     box_h = n_rows * row_h + 2 * pad
-    y_top = 1.02
+    y_top = 1.02 + 0.04 * (_legend_scale(ax) > 1)
     y_bot = max(y_top - box_h, y_floor)
     x_left = 1.0 - box_w - 0.01
     # Markers sit optically low vs text; nudge up for baseline alignment.
@@ -689,7 +698,7 @@ def _draw_kmeans_splits(ax, x0, y_vec, model):
 def _draw_discrete_segmentation_panel(
     ax, labels, X, y_vec, D_vec, *, title="", tree=None, algo=None, model=None,
     segment_colors=None, segment_cmap_name: str = "tab10",
-    seg_estimated_actions=None,
+    seg_estimated_actions=None, show_legend=True,
 ):
     labels = np.ravel(labels).astype(int)
     D_vec = np.ravel(D_vec).astype(int)
@@ -720,6 +729,8 @@ def _draw_discrete_segmentation_panel(
         if split_h is not None:
             extra = [split_h]
     _style_discrete_2d_panel(ax, y_vec, show_xlabel=False)
+    if not show_legend:
+        return
     legend_kw: dict = {}
     if algo == "dast":
         # Panel (d): multiple segs + split → more vertical room / row height
@@ -766,6 +777,8 @@ def plot_demo_combined(panels, out_path: str) -> tuple[Path, Path]:
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=False)
+    for ax in np.asarray(axes).ravel():
+        ax._demo_legend_scale = 1.12
     layout_fn(fig)
     fig.canvas.draw()
 
@@ -886,6 +899,7 @@ def plot_demo_segmentation(
         ax, labels, X, y_vec, D_vec,
         title=algo_panel_title(algo, M),
         tree=tree, algo=algo, model=model,
+        show_legend=algo not in ("kmeans-standard", "kmeans", "dast"),
         segment_colors=segment_colors, segment_cmap_name=segment_cmap_name,
         seg_estimated_actions=seg_estimated_actions,
     )

@@ -1,0 +1,57 @@
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying number of latent segments. Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments.}
+\label{tab:app-ari-nmi-varying-K}
+\begin{tabular}{llcccccccc}
+\toprule
+Method & Metric & $K=2$ & $K=3$ & $K=4$ & $K=5$ & $K=6$ & $K=7$ & $K=8$ & $K=9$ \\
+\midrule
+DAS & ARI & 0.227 & 0.226 & 0.189 & 0.176 & 0.175 & 0.164 & 0.138 & 0.146 \\
+ & NMI & 0.276 & 0.312 & 0.299 & 0.305 & 0.322 & 0.333 & 0.314 & 0.336 \\
+\addlinespace
+Policy Tree & ARI & 0.321 & 0.278 & 0.280 & 0.254 & 0.245 & 0.209 & 0.178 & 0.156 \\
+ & NMI & 0.353 & 0.341 & 0.362 & 0.362 & 0.361 & 0.350 & 0.326 & 0.318 \\
+\addlinespace
+K-Means & ARI & 0.975 & 0.778 & 0.700 & 0.602 & 0.627 & 0.644 & 0.643 & 0.626 \\
+ & NMI & 0.945 & 0.817 & 0.768 & 0.708 & 0.733 & 0.745 & 0.748 & 0.738 \\
+\addlinespace
+MST & ARI & 0.567 & 0.431 & 0.331 & 0.325 & 0.301 & 0.250 & 0.223 & 0.200 \\
+ & NMI & 0.550 & 0.485 & 0.450 & 0.439 & 0.445 & 0.418 & 0.412 & 0.392 \\
+\addlinespace
+GMM & ARI & 0.975 & 0.911 & 0.890 & 0.850 & 0.819 & 0.792 & 0.766 & 0.746 \\
+ & NMI & 0.945 & 0.885 & 0.868 & 0.842 & 0.821 & 0.807 & 0.792 & 0.782 \\
+\addlinespace
+CLR & ARI & 0.975 & 0.882 & 0.844 & 0.790 & 0.760 & 0.700 & 0.674 & 0.647 \\
+ & NMI & 0.945 & 0.873 & 0.845 & 0.811 & 0.796 & 0.763 & 0.749 & 0.733 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Segmentation recovery on the pilot sample under varying number of latent segments. Entries are Monte Carlo means of ARI and NMI. Higher values indicate closer agreement with the ground-truth latent segments. Continued.}
+\label{tab:app-ari-nmi-varying-K-cont}
+\begin{tabular}{llc}
+\toprule
+Method & Metric & $K=10$ \\
+\midrule
+DAS & ARI & 0.121 \\
+ & NMI & 0.312 \\
+\addlinespace
+Policy Tree & ARI & 0.152 \\
+ & NMI & 0.310 \\
+\addlinespace
+K-Means & ARI & 0.646 \\
+ & NMI & 0.741 \\
+\addlinespace
+MST & ARI & 0.187 \\
+ & NMI & 0.393 \\
+\addlinespace
+GMM & ARI & 0.732 \\
+ & NMI & 0.774 \\
+\addlinespace
+CLR & ARI & 0.637 \\
+ & NMI & 0.727 \\
+\bottomrule
+\end{tabular}
+\end{table}

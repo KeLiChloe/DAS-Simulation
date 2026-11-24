@@ -257,7 +257,6 @@ def parse_args():
     
     parser.add_argument("--N_segment_size", type=int, help="Number of customers per segment")
     parser.add_argument("--d", type=int, help="Dimensionality of covariates")
-    parser.add_argument("--partial_x", type=float, help="Fraction of x used in outcome generation")
     parser.add_argument("--K", type=int, help="Number of segments")
     parser.add_argument("--action_num", type=int, default=2, help="Number of actions (default: 2 for binary treatment)")
     parser.add_argument("--disallowed_ball_radius", type=float, help="Minimum distance between mean vectors as scale factor (e.g., 0.8 means min_dist = 0.8 * space_range/K^(1/d)). Default: 0.5")
@@ -267,7 +266,6 @@ def parse_args():
                         help="Target nearest-neighbor Mahalanobis separation. "
                              "When set, within-cluster covariate noise is chosen so that "
                              "the median nearest-neighbor center distance is this many standard deviations.")
-    parser.add_argument("--disturb_covariate_noise", type=float, help="Covariate noise across segments")
     
     parser.add_argument("--kmeans_coef", type=float, help="Coefficient for k-means weighting")
 

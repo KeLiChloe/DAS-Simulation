@@ -1,7 +1,7 @@
 #!/bin/bash
 # Discrete: vary cluster overlap via target_mahalanobis_sep
 #   (do NOT also pass --X_noise_std_scale).
-# Smaller sep → more overlap. With --partial_x 1, disturb noise is unused.
+# Smaller separation means more overlap.
 
 # Prevent numpy/BLAS thread-pool fork deadlocks on macOS.
 # Must be set before Python starts (setting inside Python is too late).
@@ -41,7 +41,6 @@ for SEP_INT in $(seq 50 50 800); do
         --winner_p_range 0.2 0.5 \
         --beta_range -0.2 0.2 \
         --delta_range -0.05 0.05 \
-        --disturb_covariate_noise 3 \
         --DR_generation_method lightgbm \
         --kmeans_coef 0.15 \
         --x_mean_range -200 200 \
@@ -50,7 +49,6 @@ for SEP_INT in $(seq 50 50 800); do
         --target_mahalanobis_sep "$MAHAL_SEP" \
         --K 5 \
         --d 6 \
-        --partial_x 1 \
         --action_num 3 \
         --N_sims 100 \
         --disallowed_ball_radius 0.2 \

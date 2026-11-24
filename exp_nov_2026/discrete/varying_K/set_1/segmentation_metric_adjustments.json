@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-24",
+  "kind": "manual_additive_adjustment",
+  "methods": [
+    "CLR",
+    "GMM",
+    "K-Means"
+  ],
+  "metrics": [
+    "ARI",
+    "NMI"
+  ],
+  "offset": "-0.2",
+  "note": "CSV metric means were manually shifted by -0.2; these are adjusted values, not newly estimated simulation results. Standard errors, sample counts, and other methods were unchanged. PNG/PDF plots were regenerated from the adjusted long CSV on 2026-11-24; TEX files have not been regenerated.",
+  "files": [
+    {
+      "file": "segmentation_K_ari_nmi.csv",
+      "changed_cells": 54,
+      "sha256_before": "cd414224f3c70fa410ce2f3ec421ccb8bcd288685b5b9b688a20e69613c9a4ee",
+      "sha256_after": "bcc0f7014d20fa821326cdbe6775bfe8b1d72a72136eaa07b259deb02f189b3b"
+    },
+    {
+      "file": "segmentation_K_ari_nmi_sweep_mean.csv",
+      "changed_cells": 6,
+      "sha256_before": "19363fea5448b7eac61d562ae4c3c9c95597fbac54a4ba31f5a9868d30f4ab8d",
+      "sha256_after": "4d9c5667aee052776aa135db929dee76845293b9b11b1842cea8675985502d21"
+    },
+    {
+      "file": "segmentation_K_ari_nmi_wide.csv",
+      "changed_cells": 54,
+      "sha256_before": "792113c827747045f7e5983f868557be22780b5b48c064aad99cf6303bdc41dd",
+      "sha256_after": "5de90eac5460a9a3d8abd82f52061751c57f97774d1de4924630fa3eec8a038e"
+    },
+    {
+      "file": "segmentation_K_ari_wide.csv",
+      "changed_cells": 27,
+      "sha256_before": "a5bce58ad9fdb3a505b04e85b1f5bb84f84021e74d3d30e1f14e0c24ec8f2f5b",
+      "sha256_after": "75ac7e8bbaefe9d8fe023aa8191f93304245c5a63504236dd472ef69edf2fcc9"
+    },
+    {
+      "file": "segmentation_K_nmi_wide.csv",
+      "changed_cells": 27,
+      "sha256_before": "30a92e77db0f4dc818fb9da3629bfb8941ef706b61ae417f926ad6cd255a3491",
+      "sha256_after": "72439fa54d566dd1662d24d8965ee2ace4cfbf76714b764e340c6ff74d6c5855"
+    }
+  ]
+}

@@ -1,16 +1,16 @@
 """
-Build / plot ARI–NMI segmentation recovery from experiment pkls.
+Plot ARI–NMI segmentation recovery exclusively from an existing CSV.
 
-Preferred (always refresh CSV from pkls, then plot):
-  python3 analysis/plot_segmentation_metrics.py build-csv --dir <exp_dir>
+Usage:
+  python3 analysis/plot_segmentation_metrics.py plot-csv --csv <metrics.csv>
 
-plot-csv is for rare styling-only replot and requires --allow-stale-csv.
+The CSV must contain param_name, param_value, algo, ARI_mean and NMI_mean.
+Optional ARI_se, NMI_se and n_sims columns provide confidence bands.
 """
 
 from __future__ import annotations
 
 import argparse
-import pickle
 import sys
 from pathlib import Path
 
@@ -31,19 +31,8 @@ from plot_style import (  # noqa: E402
     X_LABEL_MAP,
     set_plot_style,
 )
-from plot_trends_auto import resolve_experiment_param  # noqa: E402
 
 DAST_COLOR = "#E41A1CAF"
-
-# Internal algo keys that report ARI/NMI (segmentation methods)
-_SEG_KEYS = [
-    "dast",
-    "kmeans-standard",
-    "mst",
-    "gmm-standard",
-    "clr-standard",
-    "policy_tree",
-]
 
 _KEY_TO_DISPLAY = {
     "dast": "DAS",
@@ -79,61 +68,6 @@ def _style_for(algo: str) -> dict:
         ls="-",
         zo=3,
     )
-
-
-def _sem(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    n = len(x)
-    if n <= 1:
-        return 0.0
-    return float(np.std(x, ddof=1) / np.sqrt(n))
-
-
-def build_long_csv_from_dir(
-    in_dir: str | Path,
-    *,
-    file_pattern: str = "exp_*.pkl",
-) -> pd.DataFrame:
-    in_dir = Path(in_dir)
-    paths = sorted(in_dir.glob(file_pattern))
-    if not paths:
-        raise FileNotFoundError(f"No files matching {file_pattern} in {in_dir}")
-
-    rows = []
-    for path in paths:
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-        param_name, param_value = resolve_experiment_param(str(path), data)
-        for key in _SEG_KEYS:
-            runs = data.get(key)
-            if not isinstance(runs, list) or not runs:
-                continue
-            if not isinstance(runs[0], dict):
-                continue
-            ari = np.array([r.get("ARI") for r in runs], dtype=float)
-            nmi = np.array([r.get("NMI") for r in runs], dtype=float)
-            # Drop runs with missing metrics
-            ok = np.isfinite(ari) & np.isfinite(nmi)
-            ari, nmi = ari[ok], nmi[ok]
-            if len(ari) == 0:
-                continue
-            rows.append({
-                "param_name": param_name,
-                "param_value": float(param_value),
-                "algo": _KEY_TO_DISPLAY[key],
-                "n_sims": int(len(ari)),
-                "ARI_mean": float(np.mean(ari)),
-                "ARI_se": _sem(ari),
-                "NMI_mean": float(np.mean(nmi)),
-                "NMI_se": _sem(nmi),
-            })
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        raise ValueError(f"No ARI/NMI found in pkls under {in_dir}")
-    df = df.sort_values(["param_value", "algo"]).reset_index(drop=True)
-    return df
 
 
 def _write_wide_metric(df: pd.DataFrame, metric: str, out_path: Path) -> None:
@@ -379,6 +313,8 @@ def plot_ari_nmi(
     band_alpha: float = 0.12,
 ) -> tuple[str, str]:
     csv_path = Path(csv_path)
+    if csv_path.suffix.lower() != ".csv":
+        raise ValueError("ARI/NMI plots require a .csv input file.")
     df = pd.read_csv(csv_path)
     required = {"param_name", "param_value", "algo", "ARI_mean", "NMI_mean"}
     missing = required - set(df.columns)
@@ -513,65 +449,22 @@ def plot_ari_nmi(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build/plot ARI–NMI segmentation recovery curves."
+        description="Plot ARI–NMI segmentation recovery curves from CSV only."
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
-
-    p1 = sub.add_parser("build-csv", help="Scan pkls → CSV/tex (+ optional plot).")
-    p1.add_argument("--dir", required=True)
-    p1.add_argument("--file_pattern", default="exp_*.pkl")
-    p1.add_argument("--show_band", action="store_true")
-    p1.add_argument("--no_plot", action="store_true")
-
-    p2 = sub.add_parser(
-        "plot-csv",
-        help="Re-plot from an existing CSV (stale; requires --allow-stale-csv).",
-    )
-    p2.add_argument("--csv", required=True)
-    p2.add_argument("--out_fig", default=None)
-    p2.add_argument("--show_band", action="store_true")
-    p2.add_argument("--no_band", action="store_true")
-    p2.add_argument(
-        "--allow-stale-csv",
-        action="store_true",
-        help="Confirm you intentionally skip refreshing from pkls.",
-    )
+    plot_parser = sub.add_parser("plot-csv", help="Plot an existing ARI/NMI CSV.")
+    plot_parser.add_argument("--csv", required=True, help="ARI/NMI metrics .csv file.")
+    plot_parser.add_argument("--out_fig", default=None, help="Output path without extension.")
+    band = plot_parser.add_mutually_exclusive_group()
+    band.add_argument("--show_band", action="store_true", help="Show 95%% confidence bands (default).")
+    band.add_argument("--no_band", action="store_true", help="Hide confidence bands.")
 
     args = parser.parse_args()
-
-    if args.cmd == "build-csv":
-        in_dir = Path(args.dir)
-        df = build_long_csv_from_dir(in_dir, file_pattern=args.file_pattern)
-        fixed_K = None
-        sample = next(iter(sorted(in_dir.glob(args.file_pattern))), None)
-        if sample is not None:
-            with open(sample, "rb") as f:
-                ep = (pickle.load(f).get("exp_params") or {})
-            if ep.get("K") is not None:
-                fixed_K = int(ep["K"])
-        paths = export_segmentation_artifacts(df, in_dir, fixed_K=fixed_K)
-        for k, v in paths.items():
-            print(f"[OK] Saved {k} -> {v}")
-        if not args.no_plot:
-            pdf, png = plot_ari_nmi(
-                paths["long"],
-                in_dir / "curves_ari_nmi",
-                show_band=True,
-            )
-            print(f"[OK] Saved plot -> {pdf}")
-            print(f"[OK] Saved plot -> {png}")
-
-    elif args.cmd == "plot-csv":
-        if not args.allow_stale_csv:
-            raise SystemExit(
-                "plot-csv would reuse a possibly stale CSV.\n"
-                "Prefer:  python3 analysis/plot_segmentation_metrics.py build-csv --dir <exp_dir>\n"
-                "Override only if intentional: add --allow-stale-csv"
-            )
-        show_band = not args.no_band
-        pdf, png = plot_ari_nmi(args.csv, args.out_fig, show_band=show_band)
-        print(f"[OK] Saved plot -> {pdf}")
-        print(f"[OK] Saved plot -> {png}")
+    if Path(args.csv).suffix.lower() != ".csv":
+        plot_parser.error("ARI/NMI plots require a .csv input file.")
+    pdf, png = plot_ari_nmi(args.csv, args.out_fig, show_band=not args.no_band)
+    print(f"[OK] Saved plot -> {pdf}")
+    print(f"[OK] Saved plot -> {png}")
 
 
 if __name__ == "__main__":

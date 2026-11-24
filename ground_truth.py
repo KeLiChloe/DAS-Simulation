@@ -87,16 +87,16 @@ class SegmentTrue:
         scores = self.tau + self.delta @ np.asarray(x)
         return int(np.argmax(scores))
 
-    def _linear_predictor(self, x, D_i, signal_d):
+    def _linear_predictor(self, x, D_i):
         """Shared linear predictor η = alpha + beta@x + tau[D] + (delta[D]@x)."""
-        eta = self.alpha + self.beta[:signal_d] @ x[:signal_d] + self.tau[int(D_i)]
+        eta = self.alpha + self.beta @ x + self.tau[int(D_i)]
         if self.delta is not None:
-            eta += self.delta[int(D_i), :signal_d] @ x[:signal_d]
+            eta += self.delta[int(D_i)] @ x
         return eta
 
-    def generate_outcome(self, x, D_i, noise_std, signal_d):
+    def generate_outcome(self, x, D_i):
         """Stochastic Bernoulli outcome sample — use for data generation only."""
-        eta = self._linear_predictor(x, D_i, signal_d)
+        eta = self._linear_predictor(x, D_i)
         p = _sigmoid(eta)
         return int(np.random.binomial(1, p))
 
@@ -110,35 +110,33 @@ class SegmentEstimate:
 
 
 class Customer_pilot:
-    def __init__(self, x, D_i, y, true_segment: SegmentTrue, signal_d, customer_id=None):
+    def __init__(self, x, D_i, y, true_segment: SegmentTrue, customer_id=None):
         self.x = x
         self.D_i = D_i
         self.true_segment = true_segment
         self.y = y
-        self.signal_d = signal_d
         self.est_segment = {algo: None for algo in ALGORITHMS}
         self.customer_id = customer_id
 
     def expected_outcome(self, D_i):
         """E[Y | self.x, D=D_i] = sigmoid(eta) under true segment parameters."""
         seg = self.true_segment
-        eta = seg._linear_predictor(self.x, D_i, self.signal_d)
+        eta = seg._linear_predictor(self.x, D_i)
         return float(_sigmoid(eta))
 
 
 class Customer_implement:
-    def __init__(self, x, true_segment: SegmentTrue, noise_std, signal_d):
+    def __init__(self, x, true_segment: SegmentTrue, noise_std):
         self.x = x
         self.true_segment = true_segment
         self.noise_std = noise_std
-        self.signal_d = signal_d
         self.action_num = len(true_segment.tau)
         self.est_segment = {algo: None for algo in ALGORITHMS}
 
     def expected_outcome(self, D_i):
         """E[Y | self.x, D=D_i] = sigmoid(eta) under true segment parameters."""
         seg = self.true_segment
-        eta = seg._linear_predictor(self.x, D_i, self.signal_d)
+        eta = seg._linear_predictor(self.x, D_i)
         return float(_sigmoid(eta))
 
     def evaluate_profits(self, algo, implement_action=None):
@@ -159,7 +157,7 @@ class Customer_implement:
 # ----------------------------------------
 
 class PopulationSimulator:
-    def __init__(self, N_total_pilot_customers, N_total_implement_customers, d, K, disturb_covariate_noise, param_range, DR_generation_method, partial_x, action_num, X_mean_vectors=None, X_noise_std_scale=None, target_mahalanobis_sep=None, disallowed_ball_radius=None):
+    def __init__(self, N_total_pilot_customers, N_total_implement_customers, d, K, param_range, DR_generation_method, action_num, X_mean_vectors=None, X_noise_std_scale=None, target_mahalanobis_sep=None, disallowed_ball_radius=None):
         self.N_total_pilot_customers = N_total_pilot_customers
         self.N_total_implement_customers = N_total_implement_customers
         self.d = d
@@ -168,9 +166,6 @@ class PopulationSimulator:
         self.outcome_type = 'discrete'
 
         self.param_range = param_range
-        self.disturb_covariate_noise = disturb_covariate_noise
-        self.signal_d = d if partial_x == 1 else max(1, int(d * partial_x))
-        self.disturb_d = d - self.signal_d
         self.disallowed_ball_radius = disallowed_ball_radius if disallowed_ball_radius is not None else 0
 
         self.true_segments = self._init_true_segments(X_mean_vectors)
@@ -190,8 +185,8 @@ class PopulationSimulator:
         if self.K <= 1:
             raise ValueError(f"Need at least 2 clusters to compute covariate noise, got K={self.K}.")
         
-        mean_vectors_signal = np.array([seg.x_mean[:self.signal_d] for seg in self.true_segments])
-        pairwise_distances = pdist(mean_vectors_signal, metric='euclidean')
+        mean_vectors = np.array([seg.x_mean for seg in self.true_segments])
+        pairwise_distances = pdist(mean_vectors, metric='euclidean')
         
         if len(pairwise_distances) == 0:
             raise ValueError(f"No pairwise distances computed for K={self.K} clusters.")
@@ -212,10 +207,10 @@ class PopulationSimulator:
         }
 
         if target_mahalanobis_sep is not None:
-            self.signal_covariate_noise = median_nn_distance / target_mahalanobis_sep
+            self.covariate_noise = median_nn_distance / target_mahalanobis_sep
             self.target_mahalanobis_sep = target_mahalanobis_sep
-            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.signal_covariate_noise
-            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.signal_covariate_noise
+            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.covariate_noise
+            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.covariate_noise
             self.realized_median_nn_bayes_error = 0.5 * math.erfc(
                 self.realized_median_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
             )
@@ -224,16 +219,16 @@ class PopulationSimulator:
             )
             print(
                 "Computed X_covariate_noise: "
-                f"{self.signal_covariate_noise:.4f} "
+                f"{self.covariate_noise:.4f} "
                 f"(target_mahalanobis_sep={target_mahalanobis_sep}, "
                 f"median_nn_distance={median_nn_distance:.4f}, "
                 f"min_nn_distance={min_nn_distance:.4f})"
             )
         else:
-            self.signal_covariate_noise = X_noise_std_scale * avg_distance
+            self.covariate_noise = X_noise_std_scale * avg_distance
             self.target_mahalanobis_sep = None
-            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.signal_covariate_noise
-            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.signal_covariate_noise
+            self.realized_median_nn_mahalanobis_sep = median_nn_distance / self.covariate_noise
+            self.realized_min_nn_mahalanobis_sep = min_nn_distance / self.covariate_noise
             self.realized_median_nn_bayes_error = 0.5 * math.erfc(
                 self.realized_median_nn_mahalanobis_sep / (2.0 * np.sqrt(2.0))
             )
@@ -242,7 +237,7 @@ class PopulationSimulator:
             )
             print(
                 "Computed X_covariate_noise: "
-                f"{self.signal_covariate_noise:.4f} "
+                f"{self.covariate_noise:.4f} "
                 f"(legacy scale={X_noise_std_scale}, avg_distance={avg_distance:.4f}, "
                 f"median_nn_mahalanobis={self.realized_median_nn_mahalanobis_sep:.4f})"
             )
@@ -302,8 +297,7 @@ class PopulationSimulator:
             else:
                 delta_mat = None
 
-            sd = self.signal_d
-            xm = x_mean[:sd] if x_mean is not None else None
+            xm = x_mean
 
             winner_a = (np.random.randint(0, self.action_num)
                         if pr.get("winner_p") is not None else None)
@@ -318,7 +312,7 @@ class PopulationSimulator:
             target_probs = np.array([_sample_p(a) for a in range(self.action_num)])
             target_p_0 = target_probs[0]
             logit_0    = _logit(target_p_0)
-            beta_dot   = float(beta[:sd] @ xm) if xm is not None else 0.0
+            beta_dot   = float(beta @ xm) if xm is not None else 0.0
             alpha      = logit_0 - beta_dot
 
             # Step 2: non-baseline actions (a >= 1)
@@ -326,7 +320,7 @@ class PopulationSimulator:
             for a in range(1, self.action_num):
                 target_p_a  = target_probs[a]
                 logit_a     = _logit(target_p_a)
-                delta_dot   = float(delta_mat[a, :sd] @ xm) if (xm is not None and delta_mat is not None) else 0.0
+                delta_dot   = float(delta_mat[a] @ xm) if (xm is not None and delta_mat is not None) else 0.0
                 tau_vec[a]  = logit_a - logit_0 - delta_dot
 
             return dict(alpha=alpha, beta=beta, tau=tau_vec, delta=delta_mat,
@@ -389,20 +383,19 @@ class PopulationSimulator:
 
         Targets control population means, not exact finite-sample event counts.
         """
-        sd = self.signal_d
         for seg in self.true_segments:
             offsets = []
             for a, target in enumerate(seg.target_probs):
-                slope = seg.beta[:sd].copy()
+                slope = seg.beta.copy()
                 if seg.delta is not None:
-                    slope += seg.delta[a, :sd]
-                spread = self.signal_covariate_noise * np.linalg.norm(slope)
+                    slope += seg.delta[a]
+                spread = self.covariate_noise * np.linalg.norm(slope)
                 bound = abs(np.log(target / (1 - target))) + 12 * spread + 40
                 center_logit = brentq(
                     lambda intercept: _mean_response(intercept, spread) - target,
                     -bound, bound, xtol=1e-11,
                 )
-                offsets.append(center_logit - slope @ seg.x_mean[:sd])
+                offsets.append(center_logit - slope @ seg.x_mean)
             seg.alpha = offsets[0]
             seg.tau = np.asarray(offsets) - offsets[0]
             # action denotes the best constant action for the whole segment.
@@ -443,7 +436,7 @@ class PopulationSimulator:
             target_str = sep.join(f"{p:{col_w}.4f}" for p in seg.target_probs)
             print(f"{k:>4}  {seg.action:>4}  {'target mean':12}{target_str}")
             xmean_probs = [
-                float(_sigmoid(seg._linear_predictor(seg.x_mean, a, self.signal_d)))
+                float(_sigmoid(seg._linear_predictor(seg.x_mean, a)))
                 for a in range(self.action_num)
             ]
             xmean_str = sep.join(f"{p:{col_w}.4f}" for p in xmean_probs)
@@ -464,98 +457,24 @@ class PopulationSimulator:
 
     def _generate_pilot_customers(self):
         pilot_customers = []
-
-        cov_signal = np.eye(self.signal_d) * (self.signal_covariate_noise ** 2)
-        if self.disturb_d > 0:
-            # === 1️⃣ Generate adversarial noise clusters ===
-            cov_noise = np.eye(self.disturb_d) * (self.disturb_covariate_noise ** 2)
-            N_noise_clusters = max(1, int(np.random.uniform(self.K - 5, self.K + 5)))
-            noise_cluster_means = [
-                np.random.uniform(*self.param_range["x_mean"], size=self.disturb_d)
-                for _ in range(N_noise_clusters)
-            ]
-            noise_cluster_labels = np.random.randint(
-                0, N_noise_clusters, size=self.N_total_pilot_customers
-            )
+        covariance = np.eye(self.d) * (self.covariate_noise ** 2)
         for i in range(self.N_total_pilot_customers):
-            # 2️⃣ Choose true segment for signal part
             segment = np.random.choice(self.true_segments)
-
-            # 3️⃣ Signal features: cluster-dependent
-            # Only use first signal_d dimensions of x_mean
-            x_signal = np.random.multivariate_normal(mean=segment.x_mean[:self.signal_d], cov=cov_signal)
-
-            # 4️⃣ Disturbing features: come from random noise cluster
-            if self.disturb_d > 0:
-                w = noise_cluster_labels[i]
-                x_noise = np.random.multivariate_normal(mean=noise_cluster_means[w], cov=cov_noise)
-                x_full = np.concatenate([x_signal, x_noise])
-
-            else:
-                x_full = x_signal
-
-            # 6️⃣ Outcome
-            D_i = np.random.choice(self.action_num)  # Randomly assign action from 0 to action_num-1
-            y = segment.generate_outcome(x_full, D_i, self.noise_std, self.signal_d)
-
-            # 7️⃣ Save
-            cust = Customer_pilot(x_full, D_i, y, segment, self.signal_d, customer_id=i)
-            pilot_customers.append(cust)
-
+            x = np.random.multivariate_normal(mean=segment.x_mean, cov=covariance)
+            D_i = np.random.choice(self.action_num)
+            y = segment.generate_outcome(x, D_i)
+            pilot_customers.append(Customer_pilot(x, D_i, y, segment, customer_id=i))
         return pilot_customers
-     
+
     def _generate_implement_customers(self):
         implement_customers = []
-
-        # --- Signal and noise covariance ---
-        cov_signal = np.eye(self.signal_d) * (self.signal_covariate_noise ** 2)
-        
-
-        # === 1️⃣  noise clusters ===
-        if self.disturb_d > 0:
-            cov_noise = np.eye(self.disturb_d) * (self.disturb_covariate_noise ** 2)
-            N_noise_clusters = max(1, int(np.random.uniform(self.K - 5, self.K + 5)))
-
-            # Randomly position these noise cluster means
-            noise_cluster_means = [
-                np.random.uniform(*self.param_range["x_mean"], size=self.disturb_d)
-                for _ in range(N_noise_clusters)
-            ]
-
-            # Assign each implement customer to a random noise cluster
-            noise_cluster_labels = np.random.randint(
-                0, N_noise_clusters, size=self.N_total_implement_customers
-            )
-
-        for i in range(self.N_total_implement_customers):
-            # 2️⃣ Choose true signal segment (same as before)
+        covariance = np.eye(self.d) * (self.covariate_noise ** 2)
+        for _ in range(self.N_total_implement_customers):
             segment = np.random.choice(self.true_segments)
-
-            # 3️⃣ Signal part: segment-dependent
-            # Only use first signal_d dimensions of x_mean
-            x_signal = np.random.multivariate_normal(mean=segment.x_mean[:self.signal_d], cov=cov_signal)
-
-            # 4️⃣ Noise part: from an unrelated latent noise cluster
-            if self.disturb_d > 0:
-                w = noise_cluster_labels[i]
-                x_noise = np.random.multivariate_normal(mean=noise_cluster_means[w], cov=cov_noise)
-
-                # 5️⃣ Combine signal + noise
-                x_full = np.concatenate([x_signal, x_noise])
-            else:
-                x_full = x_signal
-
-            # 6️⃣ Create Customer_implement object
-            cust = Customer_implement(x_full, segment, self.noise_std, self.signal_d)
-            implement_customers.append(cust)
-
+            x = np.random.multivariate_normal(mean=segment.x_mean, cov=covariance)
+            implement_customers.append(Customer_implement(x, segment, self.noise_std))
         return implement_customers
 
-
-
-
-
-    
     def compute_gamma_scores(self, method, train_customers, val_customers):
         """
         Compute doubly robust (DR) scores for both training and validation customers.

@@ -37,7 +37,7 @@ def structure_oracle(true_labels, pred_labels):
     }
 
 
-def oracle_profit_on_customers(customers, signal_d=None):
+def oracle_profit_on_customers(customers):
     """
     Compute the true per-customer oracle (first-best) total profit.
 
@@ -52,7 +52,6 @@ def oracle_profit_on_customers(customers, signal_d=None):
     Parameters
     ----------
     customers  : list of Customer_implement (or Customer_pilot)
-    signal_d   : ignored — each customer already carries its own signal_d
 
     Returns
     -------
@@ -65,7 +64,7 @@ def oracle_profit_on_customers(customers, signal_d=None):
     return total
 
 
-def policy_oracle(customers, algo, signal_d=None):
+def policy_oracle(customers, algo):
     """
     Compute policy evaluation metrics:
     - Manager profit
@@ -76,7 +75,6 @@ def policy_oracle(customers, algo, signal_d=None):
     Parameters:
     - customers: list of Customer objects (each linked to true and estimated segments)
     - algo: algorithm name key into cust.est_segment
-    - signal_d: ignored — customers carry their own signal_d
 
     Returns:
     - dict with metrics: manager_profit, oracle_profit, regret, mistreatment_rate

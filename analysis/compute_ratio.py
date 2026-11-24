@@ -16,7 +16,6 @@ def print_params(data):
         'tau_param_range': data.get('exp_params').get('param_range').get('tau'),
         'delta_param_range': data.get('exp_params').get('param_range').get('delta'),
         'x_param_range': data.get('exp_params').get('param_range').get('x_mean'),
-        'partial_x': data.get('exp_params').get('partial_x'),
         'N_segment_size': data.get('exp_params').get('N_segment_size'),
         'implementation_scale': data.get('exp_params').get('implementation_scale', 1),
         'disallowed_ball_radius': data.get('exp_params').get('disallowed_ball_radius'),
