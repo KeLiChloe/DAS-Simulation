@@ -1,5 +1,4 @@
 #!/bin/bash
-# Launcher updated to use all covariates; existing result files retain their original parameters.
 # Discrete: vary covariate dimension d.
 # Noise: exactly one of --X_noise_std_scale | --target_mahalanobis_sep.
 
@@ -10,7 +9,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # ===== 参数配置 =====
-SAVE_DIR="exp_nov_2026/discrete/varying_d/set_4"
+SAVE_DIR="exp_nov_2026/discrete/varying_d/set_3"
 mkdir -p "$SAVE_DIR"
 # shellcheck source=./_snapshot_run_setup.sh
 source "$(cd "$(dirname "$0")" && pwd)/_snapshot_run_setup.sh"
@@ -27,7 +26,7 @@ ALGOS=(
 
 # ===== 实验循环 =====
 # varying d
-for D in $(seq 10 2 21); do
+for D in $(seq 1 2 16); do
     D_TAG=$(printf "%02d" "$D")
 
     echo "🚀 Running experiment with d=${D} ..."
@@ -37,11 +36,11 @@ for D in $(seq 10 2 21); do
         --target_p_range 0.005 0.015 \
         --winner_p_range 0.015 0.03 \
         --beta_range -0.1 0.1 \
-        --delta_range -0.05 0.05 \
+        --delta_range -0.08 0.08 \
         --DR_generation_method lightgbm \
         --kmeans_coef 0.1 \
         --x_mean_range -50 50 \
-        --N_segment_size 1000 \
+        --N_segment_size 5000 \
         --implementation_scale 10 \
         --X_noise_std_scale 0.2 \
         --K 5 \

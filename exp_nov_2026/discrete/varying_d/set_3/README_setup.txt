@@ -1,8 +1,8 @@
 Experiment setup snapshot
 =========================
 source_script : /Users/keli/Desktop/Things/PhD/Project_Code/Tiger/Simulation/run_scripts/discrete/run_d.sh
-copied_as     : exp_nov_2026/discrete/varying_d/set_4/run_script.sh
-saved_utc     : 2026-11-18T23:48:08Z
+copied_as     : exp_nov_2026/discrete/varying_d/set_3/run_script.sh
+saved_utc     : 2026-11-25T16:04:46Z
 host          : Kes-MacBook-Air.local
 
 How to re-read parameters
